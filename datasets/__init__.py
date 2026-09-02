@@ -6,9 +6,14 @@ if TYPE_CHECKING:
         PascalPart116Dataset,
     )
 
+    from .segmentation_dataset import (
+        SegmentationDataset,
+    )
+
 
 __all__ = [
     "PascalPart116Dataset",
+    "SegmentationDataset",
 ]
 
 
@@ -20,6 +25,14 @@ def __getattr__(name):
 
         return PascalPart116Dataset
 
+    if name == "SegmentationDataset":
+        from .segmentation_dataset import (
+            SegmentationDataset,
+        )
+
+        return SegmentationDataset
+
     raise AttributeError(
-        f"module {__name__!r} has no attribute {name!r}"
+        f"module {__name__!r} "
+        f"has no attribute {name!r}"
     )

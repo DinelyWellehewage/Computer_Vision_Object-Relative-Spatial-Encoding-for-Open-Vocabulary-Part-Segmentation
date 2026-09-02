@@ -115,3 +115,150 @@ def resize_and_pad_image(
         normalized_image,
         resize_info,
     )
+
+def get_resize_info(
+    height,
+    width,
+    target_size=224,
+):
+    scale = min(
+        target_size / height,
+        target_size / width,
+    )
+
+    new_h = max(
+        1,
+        round(height * scale),
+    )
+
+    new_w = max(
+        1,
+        round(width * scale),
+    )
+
+    pad_h = target_size - new_h
+    pad_w = target_size - new_w
+
+    top = pad_h // 2
+    bottom = pad_h - top
+
+    left = pad_w // 2
+    right = pad_w - left
+
+    return {
+        "new_h": new_h,
+        "new_w": new_w,
+        "top": top,
+        "bottom": bottom,
+        "left": left,
+        "right": right,
+        "scale": scale,
+    }
+
+
+def preprocess_segmentation_image(
+    image,
+    target_size=224,
+):
+    image = image.float() / 255.0
+
+    _, h, w = image.shape
+
+    info = get_resize_info(
+        h,
+        w,
+        target_size,
+    )
+
+    resized = TF.resize(
+        image,
+        [
+            info["new_h"],
+            info["new_w"],
+        ],
+        interpolation=InterpolationMode.BILINEAR,
+        antialias=True,
+    )
+
+    display_image = F.pad(
+        resized,
+        (
+            info["left"],
+            info["right"],
+            info["top"],
+            info["bottom"],
+        ),
+        value=0.0,
+    )
+
+    normalized = (
+        resized - IMAGENET_MEAN
+    ) / IMAGENET_STD
+
+    model_image = F.pad(
+        normalized,
+        (
+            info["left"],
+            info["right"],
+            info["top"],
+            info["bottom"],
+        ),
+        value=0.0,
+    )
+
+    return (
+        display_image,
+        model_image,
+        info,
+    )
+
+
+def preprocess_mask(
+    mask,
+    resize_info,
+    preserve_positive=False,
+):
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(0)
+
+    mask = mask.float()
+
+    resized = TF.resize(
+        mask,
+        [
+            resize_info["new_h"],
+            resize_info["new_w"],
+        ],
+        interpolation=InterpolationMode.NEAREST,
+    )
+
+    if (
+        preserve_positive
+        and mask.sum() > 0
+        and resized.sum() == 0
+    ):
+        resized = F.interpolate(
+            mask.unsqueeze(0),
+            size=(
+                resize_info["new_h"],
+                resize_info["new_w"],
+            ),
+            mode="area",
+        ).squeeze(0)
+
+        resized = (
+            resized > 0
+        ).float()
+
+    padded = F.pad(
+        resized,
+        (
+            resize_info["left"],
+            resize_info["right"],
+            resize_info["top"],
+            resize_info["bottom"],
+        ),
+        value=0.0,
+    )
+
+    return padded > 0.5
