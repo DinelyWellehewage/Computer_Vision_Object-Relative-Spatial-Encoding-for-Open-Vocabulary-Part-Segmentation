@@ -38,7 +38,7 @@ from src.metrics import (
 )
 
 
-MODE = "part_only"
+MODE = "object_mask"
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-3
