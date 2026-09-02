@@ -38,15 +38,26 @@ from src.metrics import (
 )
 
 
-MODE = "object_mask"
+MODE = "part_only"
 
-BATCH_SIZE = 4
+SEED = 42
+
+IMAGE_SIZE = 224
+
+TRAIN_BATCH_SIZE = 16
+VAL_BATCH_SIZE = 16
+
+NUM_WORKERS = 4
+
+EPOCHS = 20
+
 LEARNING_RATE = 1e-3
-EPOCHS = 1
+WEIGHT_DECAY = 1e-4
 
-# Keep these small for the local smoke test.
-MAX_TRAIN_SAMPLES = 32
-MAX_VALIDATION_SAMPLES = 16
+VISUAL_DIM = 128
+TEXT_DIM = 32
+
+MASK_THRESHOLD = 0.5
 
 
 OUTPUT_DIR = (
@@ -148,30 +159,47 @@ def train_one_epoch(
         batch_dice = dice_score(
             logits.detach(),
             part_masks,
+            threshold=MASK_THRESHOLD,
         )
 
         batch_iou = iou_score(
             logits.detach(),
             part_masks,
+            threshold=MASK_THRESHOLD,
         )
 
-        total_loss += loss.item()
-        total_dice += batch_dice.item()
-        total_iou += batch_iou.item()
-
-        print(
-            f"Train "
-            f"{batch_index}/"
-            f"{len(dataloader)} "
-            f"Loss: {loss.item():.4f} "
-            f"BCE: {bce_loss.item():.4f} "
-            f"Dice loss: "
-            f"{dice_loss_value.item():.4f} "
-            f"Dice: "
-            f"{batch_dice.item():.4f} "
-            f"IoU: "
-            f"{batch_iou.item():.4f}"
+        total_loss += (
+            loss.item()
         )
+
+        total_dice += (
+            batch_dice.item()
+        )
+
+        total_iou += (
+            batch_iou.item()
+        )
+
+        if (
+            batch_index % 50 == 0
+            or batch_index
+            == len(dataloader)
+        ):
+            print(
+                f"Train "
+                f"{batch_index}/"
+                f"{len(dataloader)} "
+                f"Loss: "
+                f"{loss.item():.4f} "
+                f"BCE: "
+                f"{bce_loss.item():.4f} "
+                f"Dice loss: "
+                f"{dice_loss_value.item():.4f} "
+                f"Dice: "
+                f"{batch_dice.item():.4f} "
+                f"IoU: "
+                f"{batch_iou.item():.4f}"
+            )
 
     number_of_batches = len(
         dataloader
@@ -227,13 +255,11 @@ def validate(
                 "query"
             ]
 
-            text_features = (
-                encode_queries(
-                    clip_model,
-                    tokenizer,
-                    queries,
-                    device,
-                )
+            text_features = encode_queries(
+                clip_model,
+                tokenizer,
+                queries,
+                device,
             )
 
             logits = model(
@@ -254,11 +280,13 @@ def validate(
             batch_dice = dice_score(
                 logits,
                 part_masks,
+                threshold=MASK_THRESHOLD,
             )
 
             batch_iou = iou_score(
                 logits,
                 part_masks,
+                threshold=MASK_THRESHOLD,
             )
 
             total_loss += (
@@ -273,17 +301,22 @@ def validate(
                 batch_iou.item()
             )
 
-            print(
-                f"Validation "
-                f"{batch_index}/"
-                f"{len(dataloader)} "
-                f"Loss: "
-                f"{loss.item():.4f} "
-                f"Dice: "
-                f"{batch_dice.item():.4f} "
-                f"IoU: "
-                f"{batch_iou.item():.4f}"
-            )
+            if (
+                batch_index % 50 == 0
+                or batch_index
+                == len(dataloader)
+            ):
+                print(
+                    f"Validation "
+                    f"{batch_index}/"
+                    f"{len(dataloader)} "
+                    f"Loss: "
+                    f"{loss.item():.4f} "
+                    f"Dice: "
+                    f"{batch_dice.item():.4f} "
+                    f"IoU: "
+                    f"{batch_iou.item():.4f}"
+                )
 
     number_of_batches = len(
         dataloader
@@ -374,6 +407,15 @@ def save_history(
 
 
 def main():
+    torch.manual_seed(
+        SEED
+    )
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(
+            SEED
+        )
+
     device = get_device()
 
     print(
@@ -386,86 +428,52 @@ def main():
         MODE,
     )
 
-    full_train_dataset = (
-        SegmentationDataset(
-            split="train_seen"
-        )
-    )
-
-    full_validation_dataset = (
-        SegmentationDataset(
-            split="validation_seen"
-        )
-    )
-
     train_dataset = (
-        torch.utils.data.Subset(
-            full_train_dataset,
-            range(
-                min(
-                    MAX_TRAIN_SAMPLES,
-                    len(
-                        full_train_dataset
-                    ),
-                )
-            ),
+        SegmentationDataset(
+            split="train_seen",
+            image_size=IMAGE_SIZE,
         )
     )
 
     validation_dataset = (
-        torch.utils.data.Subset(
-            full_validation_dataset,
-            range(
-                min(
-                    MAX_VALIDATION_SAMPLES,
-                    len(
-                        full_validation_dataset
-                    ),
-                )
-            ),
+        SegmentationDataset(
+            split="validation_seen",
+            image_size=IMAGE_SIZE,
         )
     )
 
     print(
-        "Full training samples:",
-        len(
-            full_train_dataset
-        ),
-    )
-
-    print(
-        "Training samples used:",
+        "Training samples:",
         len(
             train_dataset
         ),
     )
 
     print(
-        "Full validation samples:",
-        len(
-            full_validation_dataset
-        ),
-    )
-
-    print(
-        "Validation samples used:",
+        "Validation samples:",
         len(
             validation_dataset
         ),
     )
 
+    pin_memory = (
+        device.type == "cuda"
+    )
+
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=TRAIN_BATCH_SIZE,
         shuffle=True,
-        num_workers=0,
+        num_workers=NUM_WORKERS,
+        pin_memory=pin_memory,
     )
 
     validation_loader = DataLoader(
         validation_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=VAL_BATCH_SIZE,
         shuffle=False,
-        num_workers=0,
+        num_workers=NUM_WORKERS,
+        pin_memory=pin_memory,
     )
 
     print()
@@ -494,6 +502,8 @@ def main():
     model = BaselinePartSegmenter(
         dino_encoder=dino_model,
         mode=MODE,
+        visual_dim=VISUAL_DIM,
+        text_dim=TEXT_DIM,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -504,6 +514,7 @@ def main():
             if parameter.requires_grad
         ),
         lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
     )
 
     trainable_parameters = sum(
@@ -535,6 +546,7 @@ def main():
         print(
             "Training"
         )
+
         print(
             "--------"
         )
@@ -552,6 +564,7 @@ def main():
         print(
             "Validation"
         )
+
         print(
             "----------"
         )
