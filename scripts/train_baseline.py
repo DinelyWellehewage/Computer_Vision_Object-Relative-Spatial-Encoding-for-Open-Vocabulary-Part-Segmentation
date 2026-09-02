@@ -1,7 +1,10 @@
 from pathlib import Path
 import json
+import random
 import sys
+import time
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -60,12 +63,29 @@ TEXT_DIM = 32
 MASK_THRESHOLD = 0.5
 
 
-OUTPUT_DIR = (
+DEVICE = get_device()
+
+USE_AMP = torch.cuda.is_available()
+
+
+OUTPUT_ROOT = (
     PROJECT_ROOT
     / "outputs"
-    / "baseline"
-    / MODE
+    / "experiments"
 )
+
+
+def seed_everything(
+    seed=42,
+):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(
+            seed
+        )
 
 
 def encode_queries(
@@ -74,7 +94,7 @@ def encode_queries(
     queries,
     device,
 ):
-    text_features = []
+    features = []
 
     for query in queries:
         feature = extract_clip_features(
@@ -84,343 +104,268 @@ def encode_queries(
             device=device,
         )
 
-        text_features.append(
+        features.append(
             feature
         )
 
     return torch.cat(
-        text_features,
+        features,
         dim=0,
     )
 
 
-def train_one_epoch(
+def get_trainable_state(
     model,
+):
+    return {
+        "visual_projection":
+            model.visual_projection.state_dict(),
+
+        "text_projection":
+            model.text_projection.state_dict(),
+
+        "decoder":
+            model.decoder.state_dict(),
+    }
+
+
+def run_epoch(
+    model,
+    loader,
     clip_model,
     tokenizer,
-    dataloader,
-    optimizer,
-    device,
+    optimizer=None,
+    scaler=None,
 ):
-    model.train()
+    training = (
+        optimizer is not None
+    )
+
+    if training:
+        model.train()
+    else:
+        model.eval()
 
     total_loss = 0.0
-    total_dice = 0.0
+    total_bce = 0.0
+    total_dice_loss = 0.0
+
     total_iou = 0.0
+    total_dice = 0.0
+
+    total_samples = 0
 
     for batch_index, batch in enumerate(
-        dataloader,
+        loader,
         start=1,
     ):
         images = batch[
             "image"
-        ].to(device)
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
 
         object_masks = batch[
             "object_mask"
-        ].to(device)
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
 
-        part_masks = batch[
+        targets = batch[
             "part_mask"
-        ].to(device)
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
 
-        queries = batch[
-            "query"
-        ]
-
-        text_features = encode_queries(
+        text_embeddings = encode_queries(
             clip_model,
             tokenizer,
-            queries,
-            device,
+            batch["query"],
+            DEVICE,
         )
 
-        optimizer.zero_grad()
-
-        logits = model(
-            images,
-            text_features,
-            object_masks,
+        batch_size = (
+            images.shape[0]
         )
 
-        (
-            loss,
-            bce_loss,
-            dice_loss_value,
-        ) = segmentation_loss(
-            logits,
-            part_masks,
-        )
+        if training:
+            optimizer.zero_grad(
+                set_to_none=True
+            )
 
-        loss.backward()
+        with torch.set_grad_enabled(
+            training
+        ):
 
-        optimizer.step()
+            with torch.autocast(
+                device_type=DEVICE.type,
+                dtype=torch.float16,
+                enabled=USE_AMP,
+            ):
+                logits = model(
+                    images,
+                    text_embeddings,
+                    object_masks,
+                )
 
-        batch_dice = dice_score(
-            logits.detach(),
-            part_masks,
-            threshold=MASK_THRESHOLD,
-        )
+                (
+                    loss,
+                    bce_loss,
+                    dice_loss_value,
+                ) = segmentation_loss(
+                    logits,
+                    targets,
+                )
 
-        batch_iou = iou_score(
-            logits.detach(),
-            part_masks,
-            threshold=MASK_THRESHOLD,
-        )
+            if training:
+
+                if scaler is not None:
+
+                    scaler.scale(
+                        loss
+                    ).backward()
+
+                    scaler.unscale_(
+                        optimizer
+                    )
+
+                    torch.nn.utils.clip_grad_norm_(
+                        (
+                            parameter
+                            for parameter
+                            in model.parameters()
+                            if parameter.requires_grad
+                        ),
+                        max_norm=1.0,
+                    )
+
+                    scaler.step(
+                        optimizer
+                    )
+
+                    scaler.update()
+
+                else:
+
+                    loss.backward()
+
+                    torch.nn.utils.clip_grad_norm_(
+                        (
+                            parameter
+                            for parameter
+                            in model.parameters()
+                            if parameter.requires_grad
+                        ),
+                        max_norm=1.0,
+                    )
+
+                    optimizer.step()
+
+        with torch.no_grad():
+
+            batch_iou = iou_score(
+                logits,
+                targets,
+                threshold=MASK_THRESHOLD,
+            )
+
+            batch_dice = dice_score(
+                logits,
+                targets,
+                threshold=MASK_THRESHOLD,
+            )
 
         total_loss += (
             loss.item()
+            * batch_size
         )
 
-        total_dice += (
-            batch_dice.item()
+        total_bce += (
+            bce_loss.item()
+            * batch_size
+        )
+
+        total_dice_loss += (
+            dice_loss_value.item()
+            * batch_size
         )
 
         total_iou += (
             batch_iou.item()
+            * batch_size
+        )
+
+        total_dice += (
+            batch_dice.item()
+            * batch_size
+        )
+
+        total_samples += (
+            batch_size
         )
 
         if (
             batch_index % 50 == 0
             or batch_index
-            == len(dataloader)
+            == len(loader)
         ):
+            phase = (
+                "Train"
+                if training
+                else "Validation"
+            )
+
             print(
-                f"Train "
+                f"{phase} "
                 f"{batch_index}/"
-                f"{len(dataloader)} "
+                f"{len(loader)} "
                 f"Loss: "
                 f"{loss.item():.4f} "
-                f"BCE: "
-                f"{bce_loss.item():.4f} "
-                f"Dice loss: "
-                f"{dice_loss_value.item():.4f} "
-                f"Dice: "
-                f"{batch_dice.item():.4f} "
                 f"IoU: "
-                f"{batch_iou.item():.4f}"
+                f"{batch_iou.item():.4f} "
+                f"Dice: "
+                f"{batch_dice.item():.4f}"
             )
-
-    number_of_batches = len(
-        dataloader
-    )
 
     return {
         "loss":
             total_loss
-            / number_of_batches,
+            / total_samples,
 
-        "dice":
-            total_dice
-            / number_of_batches,
+        "bce":
+            total_bce
+            / total_samples,
 
-        "iou":
-            total_iou
-            / number_of_batches,
-    }
-
-
-def validate(
-    model,
-    clip_model,
-    tokenizer,
-    dataloader,
-    device,
-):
-    model.eval()
-
-    total_loss = 0.0
-    total_dice = 0.0
-    total_iou = 0.0
-
-    with torch.no_grad():
-
-        for batch_index, batch in enumerate(
-            dataloader,
-            start=1,
-        ):
-            images = batch[
-                "image"
-            ].to(device)
-
-            object_masks = batch[
-                "object_mask"
-            ].to(device)
-
-            part_masks = batch[
-                "part_mask"
-            ].to(device)
-
-            queries = batch[
-                "query"
-            ]
-
-            text_features = encode_queries(
-                clip_model,
-                tokenizer,
-                queries,
-                device,
-            )
-
-            logits = model(
-                images,
-                text_features,
-                object_masks,
-            )
-
-            (
-                loss,
-                _,
-                _,
-            ) = segmentation_loss(
-                logits,
-                part_masks,
-            )
-
-            batch_dice = dice_score(
-                logits,
-                part_masks,
-                threshold=MASK_THRESHOLD,
-            )
-
-            batch_iou = iou_score(
-                logits,
-                part_masks,
-                threshold=MASK_THRESHOLD,
-            )
-
-            total_loss += (
-                loss.item()
-            )
-
-            total_dice += (
-                batch_dice.item()
-            )
-
-            total_iou += (
-                batch_iou.item()
-            )
-
-            if (
-                batch_index % 50 == 0
-                or batch_index
-                == len(dataloader)
-            ):
-                print(
-                    f"Validation "
-                    f"{batch_index}/"
-                    f"{len(dataloader)} "
-                    f"Loss: "
-                    f"{loss.item():.4f} "
-                    f"Dice: "
-                    f"{batch_dice.item():.4f} "
-                    f"IoU: "
-                    f"{batch_iou.item():.4f}"
-                )
-
-    number_of_batches = len(
-        dataloader
-    )
-
-    return {
-        "loss":
-            total_loss
-            / number_of_batches,
-
-        "dice":
-            total_dice
-            / number_of_batches,
+        "dice_loss":
+            total_dice_loss
+            / total_samples,
 
         "iou":
             total_iou
-            / number_of_batches,
+            / total_samples,
+
+        "dice":
+            total_dice
+            / total_samples,
     }
-
-
-def save_checkpoint(
-    model,
-    optimizer,
-    epoch,
-    validation_metrics,
-):
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    checkpoint_path = (
-        OUTPUT_DIR
-        / "best_model.pt"
-    )
-
-    torch.save(
-        {
-            "epoch":
-                epoch,
-
-            "mode":
-                MODE,
-
-            "model_state_dict":
-                model.state_dict(),
-
-            "optimizer_state_dict":
-                optimizer.state_dict(),
-
-            "validation_metrics":
-                validation_metrics,
-        },
-        checkpoint_path,
-    )
-
-    print(
-        "Saved checkpoint:",
-        checkpoint_path,
-    )
-
-
-def save_history(
-    history,
-):
-    OUTPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    history_path = (
-        OUTPUT_DIR
-        / "history.json"
-    )
-
-    history_path.write_text(
-        json.dumps(
-            history,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    print(
-        "Saved history:",
-        history_path,
-    )
 
 
 def main():
-    torch.manual_seed(
+    seed_everything(
         SEED
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(
-            SEED
-        )
-
-    device = get_device()
-
     print(
         "Device:",
-        device,
+        DEVICE,
+    )
+
+    print(
+        "AMP:",
+        USE_AMP,
     )
 
     print(
@@ -428,37 +373,43 @@ def main():
         MODE,
     )
 
-    train_dataset = (
-        SegmentationDataset(
-            split="train_seen",
-            image_size=IMAGE_SIZE,
-        )
+    experiment_dir = (
+        OUTPUT_ROOT
+        / MODE
     )
 
-    validation_dataset = (
-        SegmentationDataset(
-            split="validation_seen",
-            image_size=IMAGE_SIZE,
-        )
+    experiment_dir.mkdir(
+        parents=True,
+        exist_ok=True,
     )
+
+
+    train_dataset = SegmentationDataset(
+        split="train_seen",
+        image_size=IMAGE_SIZE,
+    )
+
+    validation_dataset = SegmentationDataset(
+        split="validation_seen",
+        image_size=IMAGE_SIZE,
+    )
+
 
     print(
         "Training samples:",
-        len(
-            train_dataset
-        ),
+        len(train_dataset),
     )
 
     print(
         "Validation samples:",
-        len(
-            validation_dataset
-        ),
+        len(validation_dataset),
     )
 
+
     pin_memory = (
-        device.type == "cuda"
+        DEVICE.type == "cuda"
     )
+
 
     train_loader = DataLoader(
         train_dataset,
@@ -468,6 +419,7 @@ def main():
         pin_memory=pin_memory,
     )
 
+
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=VAL_BATCH_SIZE,
@@ -476,14 +428,16 @@ def main():
         pin_memory=pin_memory,
     )
 
+
     print()
     print(
         "Loading DINOv2..."
     )
 
     dino_model = load_dino_model(
-        device=device
+        device=DEVICE
     )
+
 
     print(
         "Loading CLIP..."
@@ -491,12 +445,13 @@ def main():
 
     clip_model, tokenizer = (
         load_clip_model(
-            device=device
+            device=DEVICE
         )
     )
 
+
     print(
-        "Creating baseline model..."
+        "Creating model..."
     )
 
     model = BaselinePartSegmenter(
@@ -504,7 +459,10 @@ def main():
         mode=MODE,
         visual_dim=VISUAL_DIM,
         text_dim=TEXT_DIM,
-    ).to(device)
+    ).to(
+        DEVICE
+    )
+
 
     optimizer = torch.optim.AdamW(
         (
@@ -517,119 +475,238 @@ def main():
         weight_decay=WEIGHT_DECAY,
     )
 
-    trainable_parameters = sum(
-        parameter.numel()
-        for parameter
-        in model.parameters()
-        if parameter.requires_grad
+
+    scheduler = (
+        torch.optim.lr_scheduler
+        .ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=0.5,
+            patience=2,
+        )
     )
 
-    print(
-        "Trainable parameters:",
-        trainable_parameters,
+
+    scaler = torch.amp.GradScaler(
+        "cuda",
+        enabled=USE_AMP,
     )
+
+
+    config = {
+        "mode":
+            MODE,
+
+        "seed":
+            SEED,
+
+        "image_size":
+            IMAGE_SIZE,
+
+        "epochs":
+            EPOCHS,
+
+        "train_batch_size":
+            TRAIN_BATCH_SIZE,
+
+        "val_batch_size":
+            VAL_BATCH_SIZE,
+
+        "learning_rate":
+            LEARNING_RATE,
+
+        "weight_decay":
+            WEIGHT_DECAY,
+
+        "visual_dim":
+            VISUAL_DIM,
+
+        "text_dim":
+            TEXT_DIM,
+
+        "mask_threshold":
+            MASK_THRESHOLD,
+
+        "dino":
+            "dinov2_vits14",
+
+        "clip":
+            "ViT-B-32/openai",
+    }
+
+
+    config_path = (
+        experiment_dir
+        / "config.json"
+    )
+
+    config_path.write_text(
+        json.dumps(
+            config,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
 
     history = []
 
     best_validation_iou = -1.0
 
+
     for epoch in range(
         1,
         EPOCHS + 1,
     ):
+        start_time = time.time()
+
         print()
         print(
             f"Epoch {epoch}/{EPOCHS}"
         )
 
-        print()
-        print(
-            "Training"
-        )
 
-        print(
-            "--------"
-        )
-
-        train_metrics = train_one_epoch(
+        train_metrics = run_epoch(
             model,
-            clip_model,
-            tokenizer,
             train_loader,
-            optimizer,
-            device,
-        )
-
-        print()
-        print(
-            "Validation"
-        )
-
-        print(
-            "----------"
-        )
-
-        validation_metrics = validate(
-            model,
             clip_model,
             tokenizer,
-            validation_loader,
-            device,
+            optimizer=optimizer,
+            scaler=scaler,
         )
 
-        epoch_result = {
+
+        with torch.no_grad():
+
+            validation_metrics = run_epoch(
+                model,
+                validation_loader,
+                clip_model,
+                tokenizer,
+                optimizer=None,
+                scaler=None,
+            )
+
+
+        scheduler.step(
+            validation_metrics[
+                "iou"
+            ]
+        )
+
+
+        elapsed = (
+            time.time()
+            - start_time
+        )
+
+
+        current_lr = (
+            optimizer
+            .param_groups[0][
+                "lr"
+            ]
+        )
+
+
+        history_row = {
             "epoch":
                 epoch,
 
-            "train":
-                train_metrics,
+            "train_loss":
+                train_metrics[
+                    "loss"
+                ],
 
-            "validation":
-                validation_metrics,
+            "train_iou":
+                train_metrics[
+                    "iou"
+                ],
+
+            "train_dice":
+                train_metrics[
+                    "dice"
+                ],
+
+            "val_loss":
+                validation_metrics[
+                    "loss"
+                ],
+
+            "val_iou":
+                validation_metrics[
+                    "iou"
+                ],
+
+            "val_dice":
+                validation_metrics[
+                    "dice"
+                ],
+
+            "learning_rate":
+                current_lr,
+
+            "seconds":
+                elapsed,
         }
 
+
         history.append(
-            epoch_result
+            history_row
         )
+
 
         print()
         print(
-            "Epoch results"
+            f"[{MODE}] "
+            f"Epoch "
+            f"{epoch:02d}/{EPOCHS} | "
+            f"train loss "
+            f"{train_metrics['loss']:.4f} | "
+            f"train IoU "
+            f"{train_metrics['iou']:.4f} | "
+            f"val loss "
+            f"{validation_metrics['loss']:.4f} | "
+            f"val IoU "
+            f"{validation_metrics['iou']:.4f} | "
+            f"val Dice "
+            f"{validation_metrics['dice']:.4f} | "
+            f"{elapsed:.1f}s"
         )
 
-        print(
-            "-------------"
+
+        checkpoint = {
+            "epoch":
+                epoch,
+
+            "mode":
+                MODE,
+
+            "model_state":
+                get_trainable_state(
+                    model
+                ),
+
+            "optimizer_state":
+                optimizer.state_dict(),
+
+            "scheduler_state":
+                scheduler.state_dict(),
+
+            "val_metrics":
+                validation_metrics,
+
+            "config":
+                config,
+        }
+
+
+        torch.save(
+            checkpoint,
+            experiment_dir
+            / "last.pt",
         )
 
-        print(
-            f"Train loss: "
-            f"{train_metrics['loss']:.4f}"
-        )
-
-        print(
-            f"Train Dice: "
-            f"{train_metrics['dice']:.4f}"
-        )
-
-        print(
-            f"Train IoU: "
-            f"{train_metrics['iou']:.4f}"
-        )
-
-        print(
-            f"Validation loss: "
-            f"{validation_metrics['loss']:.4f}"
-        )
-
-        print(
-            f"Validation Dice: "
-            f"{validation_metrics['dice']:.4f}"
-        )
-
-        print(
-            f"Validation IoU: "
-            f"{validation_metrics['iou']:.4f}"
-        )
 
         if (
             validation_metrics[
@@ -643,16 +720,30 @@ def main():
                 ]
             )
 
-            save_checkpoint(
-                model,
-                optimizer,
-                epoch,
-                validation_metrics,
+            torch.save(
+                checkpoint,
+                experiment_dir
+                / "best.pt",
             )
 
-        save_history(
-            history
+            print(
+                "Saved new best checkpoint."
+            )
+
+
+        history_path = (
+            experiment_dir
+            / "history.json"
         )
+
+        history_path.write_text(
+            json.dumps(
+                history,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
 
     print()
     print(
