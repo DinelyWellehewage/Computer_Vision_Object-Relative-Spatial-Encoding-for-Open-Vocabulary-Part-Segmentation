@@ -17,11 +17,16 @@ if TYPE_CHECKING:
         RobustnessDataset,
     )
 
+    from .alignment_dataset import (
+        AlignmentDataset,
+    )
+
 
 __all__ = [
     "PascalPart116Dataset",
     "SegmentationDataset",
     "GeometryDataset",
+    "AlignmentDataset",
 ]
 
 
@@ -53,6 +58,13 @@ def __getattr__(name):
         )
 
         return RobustnessDataset
+
+    if name == "AlignmentDataset":
+        from .alignment_dataset import (
+            AlignmentDataset,
+        )
+
+        return AlignmentDataset
 
     raise AttributeError(
         f"module {__name__!r} "
