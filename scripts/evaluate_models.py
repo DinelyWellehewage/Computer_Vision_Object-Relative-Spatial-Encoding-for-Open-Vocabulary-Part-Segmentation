@@ -241,13 +241,15 @@ def binary_metrics(
     )
 
     intersection = (
-        prediction & target
+        prediction
+        & target
     ).sum(
         dim=(1, 2, 3)
     ).float()
 
     union = (
-        prediction | target
+        prediction
+        | target
     ).sum(
         dim=(1, 2, 3)
     ).float()
@@ -270,21 +272,67 @@ def binary_metrics(
 
     iou = (
         intersection
-        / union.clamp_min(1.0)
+        / union.clamp_min(
+            1.0
+        )
     )
 
     dice = (
-        2.0 * intersection
+        2.0
+        * intersection
         / (
             prediction_sum
             + target_sum
-        ).clamp_min(1.0)
+        ).clamp_min(
+            1.0
+        )
     )
 
     return (
         iou,
         dice,
     )
+
+
+def outside_object_probability_ratio(
+    logits,
+    object_mask,
+    eps=1e-6,
+):
+    probability = torch.sigmoid(
+        logits
+    )
+
+    object_mask = (
+        object_mask > 0.5
+    ).float()
+
+    outside_mask = (
+        1.0
+        - object_mask
+    )
+
+    outside_probability = (
+        probability
+        * outside_mask
+    ).sum(
+        dim=(1, 2, 3)
+    )
+
+    total_probability = (
+        probability
+    ).sum(
+        dim=(1, 2, 3)
+    )
+
+    ratio = (
+        outside_probability
+        / total_probability.clamp_min(
+            eps
+        )
+    )
+
+    return ratio
 
 
 def load_baseline_model(
@@ -438,17 +486,17 @@ def load_model(
     experiment,
     dino,
 ):
-    if experiment[
+    family = experiment[
         "family"
-    ] == "baseline":
+    ]
+
+    if family == "baseline":
         return load_baseline_model(
             experiment,
             dino,
         )
 
-    if experiment[
-        "family"
-    ] == "geometry":
+    if family == "geometry":
         return load_geometry_model(
             experiment,
             dino,
@@ -598,6 +646,7 @@ def evaluate(
 
     iou_sum = 0.0
     dice_sum = 0.0
+    outside_ratio_sum = 0.0
 
     total_samples = 0
 
@@ -630,9 +679,23 @@ def evaluate(
                 non_blocking=True,
             )
 
+            object_mask = batch[
+                "object_mask"
+            ].to(
+                DEVICE,
+                non_blocking=True,
+            )
+
             iou, dice = binary_metrics(
                 logits,
                 target,
+            )
+
+            outside_ratio = (
+                outside_object_probability_ratio(
+                    logits,
+                    object_mask,
+                )
             )
 
             iou_sum += (
@@ -641,6 +704,12 @@ def evaluate(
 
             dice_sum += (
                 dice.sum().item()
+            )
+
+            outside_ratio_sum += (
+                outside_ratio
+                .sum()
+                .item()
             )
 
             total_samples += (
@@ -668,6 +737,10 @@ def evaluate(
 
         "dice":
             dice_sum
+            / total_samples,
+
+        "outside_ratio":
+            outside_ratio_sum
             / total_samples,
     }
 
@@ -783,6 +856,12 @@ def main():
             ]
 
             row[
+                f"{split}_outside_ratio"
+            ] = metrics[
+                "outside_ratio"
+            ]
+
+            row[
                 f"{split}_samples"
             ] = metrics[
                 "samples"
@@ -799,6 +878,13 @@ def main():
                 "Dice:",
                 metrics[
                     "dice"
+                ],
+            )
+
+            print(
+                "Outside ratio:",
+                metrics[
+                    "outside_ratio"
                 ],
             )
 

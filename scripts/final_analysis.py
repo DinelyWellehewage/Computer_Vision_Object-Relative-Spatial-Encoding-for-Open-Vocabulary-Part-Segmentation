@@ -410,6 +410,16 @@ def build_test_table():
                     "test_unseen_dice"
                 ),
 
+            "seen_outside_ratio":
+                result.get(
+                    "test_seen_outside_ratio"
+                ),
+
+            "unseen_outside_ratio":
+                result.get(
+                    "test_unseen_outside_ratio"
+                ),
+
             "seen_samples":
                 result.get(
                     "test_seen_samples"
@@ -440,10 +450,15 @@ def print_test_table(
         "unseen_iou",
         "seen_dice",
         "unseen_dice",
+        "seen_outside_ratio",
+        "unseen_outside_ratio",
     ]:
-        display_table[column] = (
-            display_table[column]
-            .apply(
+        display_table[
+            column
+        ] = (
+            display_table[
+                column
+            ].apply(
                 lambda value:
                     (
                         f"{value:.4f}"
@@ -462,6 +477,8 @@ def print_test_table(
                 "unseen_iou",
                 "seen_dice",
                 "unseen_dice",
+                "seen_outside_ratio",
+                "unseen_outside_ratio",
             ]
         ].to_string(
             index=False
