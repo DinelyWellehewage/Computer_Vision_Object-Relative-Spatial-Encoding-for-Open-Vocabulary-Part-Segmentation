@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from .geometry_dataset import (
         GeometryDataset,
     )
+    from .robustness_dataset import (
+        RobustnessDataset,
+    )
 
 
 __all__ = [
@@ -43,6 +46,13 @@ def __getattr__(name):
         )
 
         return GeometryDataset
+
+    if name == "RobustnessDataset":
+        from .robustness_dataset import (
+            RobustnessDataset,
+        )
+
+        return RobustnessDataset
 
     raise AttributeError(
         f"module {__name__!r} "
