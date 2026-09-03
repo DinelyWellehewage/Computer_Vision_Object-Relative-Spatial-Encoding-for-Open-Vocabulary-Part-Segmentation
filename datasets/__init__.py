@@ -21,12 +21,17 @@ if TYPE_CHECKING:
         AlignmentDataset,
     )
 
+    from .object_centric_dataset import (
+        ObjectCentricDataset,
+    )
+
 
 __all__ = [
     "PascalPart116Dataset",
     "SegmentationDataset",
     "GeometryDataset",
     "AlignmentDataset",
+    "ObjectCentricDataset",
 ]
 
 
@@ -65,6 +70,13 @@ def __getattr__(name):
         )
 
         return AlignmentDataset
+
+    if name == "ObjectCentricDataset":
+        from .object_centric_dataset import (
+            ObjectCentricDataset,
+        )
+
+        return ObjectCentricDataset
 
     raise AttributeError(
         f"module {__name__!r} "
