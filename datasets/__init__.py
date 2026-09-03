@@ -10,10 +10,15 @@ if TYPE_CHECKING:
         SegmentationDataset,
     )
 
+    from .geometry_dataset import (
+        GeometryDataset,
+    )
+
 
 __all__ = [
     "PascalPart116Dataset",
     "SegmentationDataset",
+    "GeometryDataset",
 ]
 
 
@@ -31,6 +36,13 @@ def __getattr__(name):
         )
 
         return SegmentationDataset
+
+    if name == "GeometryDataset":
+        from .geometry_dataset import (
+            GeometryDataset,
+        )
+
+        return GeometryDataset
 
     raise AttributeError(
         f"module {__name__!r} "
