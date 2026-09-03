@@ -1,12 +1,13 @@
-#!/bin/bash
+#!/bin/bash -l
 
-#SBATCH --job-name=geo-final-k128
-#SBATCH --partition=a40
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=16
-#SBATCH --time=04:00:00
-#SBATCH --output=logs/train_%j.out
-#SBATCH --error=logs/train_%j.err
+#SBATCH --job-name=cv-part-baseline
+#SBATCH --gres=gpu:a40:1
+#SBATCH --time=12:00:00
+#SBATCH --export=NONE
+#SBATCH --output=logs/baseline_%j.out
+#SBATCH --error=logs/baseline_%j.err
+
+unset SLURM_EXPORT_ENV
 
 
 set -e
