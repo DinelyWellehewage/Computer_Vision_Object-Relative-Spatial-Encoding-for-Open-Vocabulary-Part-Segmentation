@@ -21,13 +21,6 @@ GEOMETRY_ROOT = (
 )
 
 
-ROBUSTNESS_ROOT = (
-    PROJECT_ROOT
-    / "outputs"
-    / "robustness"
-)
-
-
 ALIGNMENT_ROOT = (
     PROJECT_ROOT
     / "outputs"
@@ -39,6 +32,13 @@ ZOOM_ROOT = (
     PROJECT_ROOT
     / "outputs"
     / "object_zoom"
+)
+
+
+ROBUSTNESS_ROOT = (
+    PROJECT_ROOT
+    / "outputs"
+    / "robustness"
 )
 
 
@@ -55,12 +55,67 @@ FINAL_ROOT.mkdir(
 )
 
 
-def load_json_if_exists(
+EXPERIMENTS = {
+    "baseline/part_only":
+        BASELINE_ROOT
+        / "part_only"
+        / "history.json",
+
+    "baseline/object_mask":
+        BASELINE_ROOT
+        / "object_mask"
+        / "history.json",
+
+    "geometry/object_mask":
+        GEOMETRY_ROOT
+        / "object_mask"
+        / "history.json",
+
+    "geometry/absolute_xy":
+        GEOMETRY_ROOT
+        / "absolute_xy"
+        / "history.json",
+
+    "geometry/relative_uv":
+        GEOMETRY_ROOT
+        / "relative_uv"
+        / "history.json",
+
+    "alignment/mask_baseline":
+        ALIGNMENT_ROOT
+        / "mask_baseline"
+        / "history.json",
+
+    "alignment/alignment_mask":
+        ALIGNMENT_ROOT
+        / "alignment_mask"
+        / "history.json",
+
+    "alignment/alignment_relative_uv":
+        ALIGNMENT_ROOT
+        / "alignment_relative_uv"
+        / "history.json",
+
+    "object_zoom/mask_baseline":
+        ZOOM_ROOT
+        / "mask_baseline"
+        / "history.json",
+
+    "object_zoom/alignment_mask":
+        ZOOM_ROOT
+        / "alignment_mask"
+        / "history.json",
+
+    "object_zoom/alignment_relative_uv":
+        ZOOM_ROOT
+        / "alignment_relative_uv"
+        / "history.json",
+}
+
+
+def load_json(
     path,
 ):
-    if not path.is_file():
-        return None
-
     with open(
         path,
         "r",
@@ -71,35 +126,249 @@ def load_json_if_exists(
         )
 
 
-def load_csv_if_exists(
-    path,
+def get_value(
+    row,
+    names,
 ):
-    if not path.is_file():
+    for name in names:
+        if name in row:
+            return row[name]
+
+    return None
+
+
+def find_best_epoch(
+    history,
+):
+    if not history:
         return None
 
-    return pd.read_csv(
-        path
-    )
+    best_row = None
+    best_iou = None
+
+    for row in history:
+        val_iou = get_value(
+            row,
+            [
+                "val_iou",
+            ],
+        )
+
+        if val_iou is None:
+            validation = row.get(
+                "validation"
+            )
+
+            if isinstance(
+                validation,
+                dict,
+            ):
+                val_iou = validation.get(
+                    "iou"
+                )
+
+        if val_iou is None:
+            continue
+
+        if (
+            best_iou is None
+            or val_iou > best_iou
+        ):
+            best_iou = val_iou
+            best_row = row
+
+    return best_row
 
 
-def print_file_status(
+def make_experiment_row(
     name,
-    path,
+    history_path,
 ):
-    status = (
-        "FOUND"
-        if path.is_file()
-        else "MISSING"
+    if not history_path.is_file():
+        return {
+            "experiment":
+                name,
+
+            "status":
+                "missing",
+
+            "best_epoch":
+                None,
+
+            "val_loss":
+                None,
+
+            "val_iou":
+                None,
+
+            "val_dice":
+                None,
+        }
+
+    history = load_json(
+        history_path
+    )
+
+    best_row = find_best_epoch(
+        history
+    )
+
+    if best_row is None:
+        return {
+            "experiment":
+                name,
+
+            "status":
+                "no_valid_epoch",
+
+            "best_epoch":
+                None,
+
+            "val_loss":
+                None,
+
+            "val_iou":
+                None,
+
+            "val_dice":
+                None,
+        }
+
+    val_loss = get_value(
+        best_row,
+        [
+            "val_loss",
+        ],
+    )
+
+    val_iou = get_value(
+        best_row,
+        [
+            "val_iou",
+        ],
+    )
+
+    val_dice = get_value(
+        best_row,
+        [
+            "val_dice",
+        ],
+    )
+
+    if (
+        val_loss is None
+        or val_iou is None
+        or val_dice is None
+    ):
+        validation = best_row.get(
+            "validation"
+        )
+
+        if isinstance(
+            validation,
+            dict,
+        ):
+            if val_loss is None:
+                val_loss = validation.get(
+                    "loss"
+                )
+
+            if val_iou is None:
+                val_iou = validation.get(
+                    "iou"
+                )
+
+            if val_dice is None:
+                val_dice = validation.get(
+                    "dice"
+                )
+
+    return {
+        "experiment":
+            name,
+
+        "status":
+            "available",
+
+        "best_epoch":
+            best_row.get(
+                "epoch"
+            ),
+
+        "val_loss":
+            val_loss,
+
+        "val_iou":
+            val_iou,
+
+        "val_dice":
+            val_dice,
+    }
+
+
+def build_validation_table():
+    rows = []
+
+    for name, history_path in (
+        EXPERIMENTS.items()
+    ):
+        row = make_experiment_row(
+            name,
+            history_path,
+        )
+
+        rows.append(
+            row
+        )
+
+    table = pd.DataFrame(
+        rows
+    )
+
+    return table
+
+
+def print_validation_table(
+    table,
+):
+    display_table = table.copy()
+
+    for column in [
+        "val_loss",
+        "val_iou",
+        "val_dice",
+    ]:
+        display_table[column] = (
+            display_table[column]
+            .apply(
+                lambda value:
+                    (
+                        f"{value:.4f}"
+                        if pd.notna(value)
+                        else "-"
+                    )
+            )
+        )
+
+    display_table[
+        "best_epoch"
+    ] = (
+        display_table[
+            "best_epoch"
+        ].apply(
+            lambda value:
+                (
+                    int(value)
+                    if pd.notna(value)
+                    else "-"
+                )
+        )
     )
 
     print(
-        f"{name:30s}",
-        status,
-    )
-
-    print(
-        " ",
-        path,
+        display_table.to_string(
+            index=False
+        )
     )
 
 
@@ -116,99 +385,74 @@ def main():
 
     print()
     print(
-        "Experiment files"
+        "Building validation table..."
     )
 
-    print(
-        "----------------"
+    table = build_validation_table()
+
+    print()
+    print_validation_table(
+        table
     )
 
+    output_path = (
+        FINAL_ROOT
+        / "validation_summary.csv"
+    )
 
-    expected_files = {
-
-        # Baseline
-        "baseline part_only history":
-            BASELINE_ROOT
-            / "part_only"
-            / "history.json",
-
-        "baseline object_mask history":
-            BASELINE_ROOT
-            / "object_mask"
-            / "history.json",
-
-
-        # Geometry
-        "geometry object_mask history":
-            GEOMETRY_ROOT
-            / "object_mask"
-            / "history.json",
-
-        "geometry absolute_xy history":
-            GEOMETRY_ROOT
-            / "absolute_xy"
-            / "history.json",
-
-        "geometry relative_uv history":
-            GEOMETRY_ROOT
-            / "relative_uv"
-            / "history.json",
-
-
-        # Alignment
-        "alignment mask_baseline history":
-            ALIGNMENT_ROOT
-            / "mask_baseline"
-            / "history.json",
-
-        "alignment alignment_mask history":
-            ALIGNMENT_ROOT
-            / "alignment_mask"
-            / "history.json",
-
-        "alignment relative_uv history":
-            ALIGNMENT_ROOT
-            / "alignment_relative_uv"
-            / "history.json",
-
-
-        # Object zoom
-        "zoom mask_baseline history":
-            ZOOM_ROOT
-            / "mask_baseline"
-            / "history.json",
-
-        "zoom alignment_mask history":
-            ZOOM_ROOT
-            / "alignment_mask"
-            / "history.json",
-
-        "zoom relative_uv history":
-            ZOOM_ROOT
-            / "alignment_relative_uv"
-            / "history.json",
-
-
-        # Robustness
-        "robustness results":
-            ROBUSTNESS_ROOT
-            / "robustness_results.json",
-    }
-
-
-    for name, path in (
-        expected_files.items()
-    ):
-        print_file_status(
-            name,
-            path,
-        )
-
+    table.to_csv(
+        output_path,
+        index=False,
+    )
 
     print()
     print(
-        "Final analysis setup complete."
+        "Saved:",
+        output_path,
     )
+
+    available = table[
+        table["status"]
+        == "available"
+    ]
+
+    if len(available) > 0:
+        best_index = (
+            available[
+                "val_iou"
+            ].astype(float)
+            .idxmax()
+        )
+
+        best = available.loc[
+            best_index
+        ]
+
+        print()
+        print(
+            "Best available model by "
+            "validation IoU:"
+        )
+
+        print(
+            best[
+                "experiment"
+            ]
+        )
+
+        print(
+            "Validation IoU:",
+            best[
+                "val_iou"
+            ],
+        )
+
+    else:
+        print()
+        print(
+            "No trained experiments "
+            "available yet."
+        )
 
 
 if __name__ == "__main__":
