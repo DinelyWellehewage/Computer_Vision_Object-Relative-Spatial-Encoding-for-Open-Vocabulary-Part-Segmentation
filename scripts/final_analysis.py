@@ -35,13 +35,6 @@ ZOOM_ROOT = (
 )
 
 
-ROBUSTNESS_ROOT = (
-    PROJECT_ROOT
-    / "outputs"
-    / "robustness"
-)
-
-
 FINAL_ROOT = (
     PROJECT_ROOT
     / "outputs"
@@ -111,6 +104,12 @@ EXPERIMENTS = {
         / "alignment_relative_uv"
         / "history.json",
 }
+
+
+TEST_RESULTS_PATH = (
+    FINAL_ROOT
+    / "test_results.json"
+)
 
 
 def load_json(
@@ -312,20 +311,16 @@ def build_validation_table():
     for name, history_path in (
         EXPERIMENTS.items()
     ):
-        row = make_experiment_row(
-            name,
-            history_path,
-        )
-
         rows.append(
-            row
+            make_experiment_row(
+                name,
+                history_path,
+            )
         )
 
-    table = pd.DataFrame(
+    return pd.DataFrame(
         rows
     )
-
-    return table
 
 
 def print_validation_table(
@@ -372,6 +367,108 @@ def print_validation_table(
     )
 
 
+def build_test_table():
+    if not TEST_RESULTS_PATH.is_file():
+        return None
+
+    results = load_json(
+        TEST_RESULTS_PATH
+    )
+
+    rows = []
+
+    for result in results:
+        row = {
+            "experiment":
+                result.get(
+                    "experiment"
+                ),
+
+            "status":
+                result.get(
+                    "status",
+                    "unknown",
+                ),
+
+            "seen_iou":
+                result.get(
+                    "test_seen_iou"
+                ),
+
+            "unseen_iou":
+                result.get(
+                    "test_unseen_iou"
+                ),
+
+            "seen_dice":
+                result.get(
+                    "test_seen_dice"
+                ),
+
+            "unseen_dice":
+                result.get(
+                    "test_unseen_dice"
+                ),
+
+            "seen_samples":
+                result.get(
+                    "test_seen_samples"
+                ),
+
+            "unseen_samples":
+                result.get(
+                    "test_unseen_samples"
+                ),
+        }
+
+        rows.append(
+            row
+        )
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+def print_test_table(
+    table,
+):
+    display_table = table.copy()
+
+    for column in [
+        "seen_iou",
+        "unseen_iou",
+        "seen_dice",
+        "unseen_dice",
+    ]:
+        display_table[column] = (
+            display_table[column]
+            .apply(
+                lambda value:
+                    (
+                        f"{value:.4f}"
+                        if pd.notna(value)
+                        else "-"
+                    )
+            )
+        )
+
+    print(
+        display_table[
+            [
+                "experiment",
+                "status",
+                "seen_iou",
+                "unseen_iou",
+                "seen_dice",
+                "unseen_dice",
+            ]
+        ].to_string(
+            index=False
+        )
+    )
+
+
 def main():
     print(
         "Project root:",
@@ -385,42 +482,50 @@ def main():
 
     print()
     print(
-        "Building validation table..."
+        "Validation model selection"
     )
 
-    table = build_validation_table()
+    print(
+        "--------------------------"
+    )
 
-    print()
+    validation_table = (
+        build_validation_table()
+    )
+
     print_validation_table(
-        table
+        validation_table
     )
 
-    output_path = (
+    validation_output = (
         FINAL_ROOT
         / "validation_summary.csv"
     )
 
-    table.to_csv(
-        output_path,
+    validation_table.to_csv(
+        validation_output,
         index=False,
     )
 
     print()
     print(
         "Saved:",
-        output_path,
+        validation_output,
     )
 
-    available = table[
-        table["status"]
-        == "available"
+
+    available = validation_table[
+        validation_table[
+            "status"
+        ] == "available"
     ]
 
     if len(available) > 0:
         best_index = (
             available[
                 "val_iou"
-            ].astype(float)
+            ]
+            .astype(float)
             .idxmax()
         )
 
@@ -447,12 +552,63 @@ def main():
             ],
         )
 
-    else:
+
+    print()
+    print(
+        "Seen / unseen test results"
+    )
+
+    print(
+        "--------------------------"
+    )
+
+    test_table = build_test_table()
+
+
+    if test_table is None:
+        print(
+            "Test result file not found:"
+        )
+
+        print(
+            TEST_RESULTS_PATH
+        )
+
         print()
         print(
-            "No trained experiments "
-            "available yet."
+            "Run:"
         )
+
+        print(
+            "python scripts/"
+            "evaluate_models.py"
+        )
+
+        return
+
+
+    print_test_table(
+        test_table
+    )
+
+
+    test_output = (
+        FINAL_ROOT
+        / "test_summary.csv"
+    )
+
+
+    test_table.to_csv(
+        test_output,
+        index=False,
+    )
+
+
+    print()
+    print(
+        "Saved:",
+        test_output,
+    )
 
 
 if __name__ == "__main__":
