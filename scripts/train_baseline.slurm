@@ -1,14 +1,12 @@
 #!/bin/bash
 
-#SBATCH --job-name=cv-part-baseline
+#SBATCH --job-name=geo-final-k128
 #SBATCH --partition=a40
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
-#SBATCH --time=12:00:00
-
-#SBATCH --output=logs/baseline_%j.out
-#SBATCH --error=logs/baseline_%j.err
+#SBATCH --cpus-per-task=16
+#SBATCH --time=04:00:00
+#SBATCH --output=logs/train_%j.out
+#SBATCH --error=logs/train_%j.err
 
 
 set -e
