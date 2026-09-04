@@ -22,6 +22,7 @@ module load cuda/12.8.1
 
 source .venv/bin/activate
 
+export HF_HUB_DISABLE_XET=1
 
 mkdir -p logs
 
