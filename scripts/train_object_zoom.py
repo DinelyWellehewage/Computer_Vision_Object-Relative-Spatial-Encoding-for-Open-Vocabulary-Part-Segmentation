@@ -44,7 +44,7 @@ from src.metrics import (
 )
 
 
-MODE = "mask_baseline"
+MODE = "alignment_relative_uv"
 
 SEED = 42
 

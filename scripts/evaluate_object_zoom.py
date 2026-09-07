@@ -49,7 +49,7 @@ NUM_WORKERS = 2
 
 MASK_THRESHOLD = 0.5
 
-MODE = "alignment_relative_uv"
+MODE = "alignment_mask"
 
 
 OUTPUT_DIR = (
@@ -440,7 +440,8 @@ def main():
     full_checkpoint = (
         PROJECT_ROOT
         / "outputs"
-        / "alignment"
+        / "experiments"
+        / "part_query_alignment"
         / MODE
         / "best.pt"
     )

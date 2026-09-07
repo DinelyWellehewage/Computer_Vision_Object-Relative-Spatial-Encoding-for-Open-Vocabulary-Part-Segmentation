@@ -41,7 +41,7 @@ from src.metrics import (
 )
 
 
-MODE = "part_only"
+MODE = "object_mask"
 
 SEED = 42
 

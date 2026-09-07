@@ -41,7 +41,7 @@ from src.metrics import (
 )
 
 
-MODE = "object_mask"
+MODE = "relative_uv"
 
 SEED = 42
 

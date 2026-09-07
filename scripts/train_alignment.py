@@ -20,7 +20,7 @@ from src.alignment_model import PartQueryAlignmentSegmenter
 from src.alignment_loss import compute_total_alignment_loss
 
 
-MODE = "mask_baseline"
+MODE = "alignment_relative_uv"
 
 SEED = 42
 IMAGE_SIZE = 224
