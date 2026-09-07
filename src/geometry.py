@@ -121,3 +121,50 @@ def create_relative_uv(
         u_map.unsqueeze(0),
         v_map.unsqueeze(0),
     )
+
+def create_boundary_distance(
+    object_mask,
+):
+    import numpy as np
+    from scipy.ndimage import distance_transform_edt
+
+    if object_mask.ndim == 3:
+        mask = object_mask.squeeze(0)
+    else:
+        mask = object_mask
+
+    mask = mask.bool()
+
+    mask_numpy = (
+        mask
+        .cpu()
+        .numpy()
+        .astype(np.uint8)
+    )
+
+    if mask_numpy.sum() == 0:
+        return torch.zeros(
+            (1, *mask_numpy.shape),
+            dtype=torch.float32,
+        )
+
+    distance = distance_transform_edt(
+        mask_numpy
+    ).astype(np.float32)
+
+    max_distance = distance.max()
+
+    if max_distance > 0:
+        distance = (
+            distance
+            / max_distance
+        )
+
+    distance = (
+        distance
+        * mask_numpy
+    )
+
+    return torch.from_numpy(
+        distance
+    ).unsqueeze(0)
