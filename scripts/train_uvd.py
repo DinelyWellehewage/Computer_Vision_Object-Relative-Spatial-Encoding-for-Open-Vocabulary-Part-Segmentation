@@ -41,7 +41,7 @@ from src.metrics import (
 )
 
 
-MODE = "fixed_uvd"
+MODE = "query_gated_uvd"
 
 SEED = 42
 

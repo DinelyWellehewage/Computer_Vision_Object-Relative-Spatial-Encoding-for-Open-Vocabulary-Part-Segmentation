@@ -386,3 +386,47 @@ Results file:
 - These values come from full training, not smoke tests.
 - Test data is not used for model selection.
 - `part_only` completed all 20 epochs successfully.
+
+## Query-Gated UVD Geometry
+
+### Fixed UVD
+
+This experiment extends the object-relative geometry representation from relative U/V coordinates to fixed U/V/D geometry, where D is the normalized distance to the parent-object boundary.
+
+| Metric | Result |
+|---|---:|
+| Best epoch | 16 |
+| Best validation IoU | 0.3336 |
+| Validation Dice | 0.4245 |
+| Validation loss | 0.6325 |
+| Train IoU | 0.4176 |
+| Train loss | 0.5252 |
+| Learning rate | 5.0e-4 |
+
+The fixed UVD representation achieved a validation IoU of **0.3336**, compared with **0.3301** for the earlier relative-UV geometry model. This is an absolute improvement of approximately **0.0035 IoU**, indicating a small benefit from including normalized boundary-distance information.
+
+### Query-Gated UVD
+
+| Metric | Result |
+|---|---:|
+| Best epoch | 17 |
+| Best validation IoU | **0.3273** |
+| Validation Dice | **0.4178** |
+| Validation loss | 0.6408 |
+| Train IoU | 0.4244 |
+| Train loss | 0.5172 |
+| Learning rate | 5.0e-4 |
+
+The query-gated UVD model achieved a validation IoU of **0.3273**, compared with **0.3336** for fixed UVD and **0.3301** for the earlier relative-UV geometry model.
+
+Therefore, query-conditioned weighting did not improve validation IoU in this full-image geometry experiment. The fixed UVD representation performed best among these three geometry variants.
+
+### UVD Validation Comparison
+
+| Geometry | Best validation IoU |
+|---|---:|
+| Relative UV | 0.3301 |
+| Fixed UVD | **0.3336** |
+| Query-Gated UVD | 0.3273 |
+
+The boundary-distance channel provides a small improvement when used directly, while the learned query gate does not improve validation performance in this setting.
