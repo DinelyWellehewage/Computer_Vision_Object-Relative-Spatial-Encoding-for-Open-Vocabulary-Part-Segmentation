@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from src.uvd_model import (
+    QueryGeometryGate,
+)
+
 
 class PartQueryAlignmentSegmenter(nn.Module):
 
@@ -13,6 +17,7 @@ class PartQueryAlignmentSegmenter(nn.Module):
         text_common_dim=128,
         text_decoder_dim=32,
         temperature=0.10,
+        gate_hidden_dim=64,
     ):
         super().__init__()
 
@@ -20,6 +25,8 @@ class PartQueryAlignmentSegmenter(nn.Module):
             "mask_baseline",
             "alignment_mask",
             "alignment_relative_uv",
+            "alignment_fixed_uvd",
+            "alignment_query_gated_uvd",
         }
 
         if mode not in valid_modes:
@@ -30,20 +37,17 @@ class PartQueryAlignmentSegmenter(nn.Module):
         self.mode = mode
         self.temperature = temperature
 
-        # Frozen DINOv2
         self.dino = dino_encoder
 
         for parameter in self.dino.parameters():
             parameter.requires_grad = False
 
-        # DINO: 384 -> 128
         self.visual_projection = nn.Conv2d(
             384,
             visual_dim,
             kernel_size=1,
         )
 
-        # CLIP: 512 -> 128
         self.text_projection = nn.Sequential(
             nn.Linear(
                 512,
@@ -52,8 +56,6 @@ class PartQueryAlignmentSegmenter(nn.Module):
             nn.GELU(),
         )
 
-        # Text for decoder:
-        # 128 -> 32
         self.text_decoder_projection = (
             nn.Linear(
                 text_common_dim,
@@ -61,21 +63,51 @@ class PartQueryAlignmentSegmenter(nn.Module):
             )
         )
 
-        # Fusion channels:
-        #
-        # visual     128
-        # text        32
-        # object       1
-        # U,V          2
-        # alignment    1
-        # ----------------
-        # total       164
+        if (
+            mode
+            == "alignment_query_gated_uvd"
+        ):
+            self.geometry_gate = (
+                QueryGeometryGate(
+                    input_dim=512,
+                    hidden_dim=gate_hidden_dim,
+                )
+            )
+        else:
+            self.geometry_gate = None
+
+        self.uses_uvd = mode in {
+            "alignment_fixed_uvd",
+            "alignment_query_gated_uvd",
+        }
+
+        if self.uses_uvd:
+            # visual     128
+            # text        32
+            # object       1
+            # U,V,D        3
+            # alignment    1
+            # ----------------
+            # total       165
+            geometry_channels = 3
+        else:
+            # Keep legacy architecture
+            # exactly unchanged.
+            #
+            # visual     128
+            # text        32
+            # object       1
+            # U,V          2
+            # alignment    1
+            # ----------------
+            # total       164
+            geometry_channels = 2
 
         fusion_dim = (
             visual_dim
             + text_decoder_dim
             + 1
-            + 2
+            + geometry_channels
             + 1
         )
 
@@ -230,25 +262,23 @@ class PartQueryAlignmentSegmenter(nn.Module):
         object_mask,
         relative_u,
         relative_v,
+        boundary_d=None,
+        return_gate_weights=False,
     ):
-        # DINO features
         dino_features = (
             self.extract_dino_features(
                 images
             )
         )
 
-        # [B,128,16,16]
         visual = self.visual_projection(
             dino_features
         )
 
-        # CLIP text -> shared 128-D space
         text_common = self.text_projection(
             text_embeddings
         )
 
-        # Text for decoder -> 32-D
         text_decoder = (
             self.text_decoder_projection(
                 text_common
@@ -270,7 +300,6 @@ class PartQueryAlignmentSegmenter(nn.Module):
             )
         )
 
-        # Query alignment
         (
             alignment_logits,
             alignment_probability,
@@ -283,21 +312,17 @@ class PartQueryAlignmentSegmenter(nn.Module):
             visual.shape[-2:]
         )
 
-        # Parent object mask
         mask_low = F.interpolate(
             object_mask,
             size=spatial_size,
             mode="nearest",
         )
 
-        # Only keep alignment inside
-        # the parent object
         alignment_map = (
             alignment_probability
             * mask_low
         )
 
-        # Relative U/V
         u_low = F.interpolate(
             relative_u,
             size=spatial_size,
@@ -322,8 +347,13 @@ class PartQueryAlignmentSegmenter(nn.Module):
             * mask_low
         )
 
-        # Controlled modes
+
+        # =====================================
+        # Existing modes
+        # =====================================
+
         if self.mode == "mask_baseline":
+
             alignment_input = (
                 torch.zeros_like(
                     alignment_map
@@ -342,7 +372,23 @@ class PartQueryAlignmentSegmenter(nn.Module):
                 )
             )
 
+            fused = torch.cat(
+                [
+                    visual,
+                    text_map,
+                    mask_low,
+                    u_input,
+                    v_input,
+                    alignment_input,
+                ],
+                dim=1,
+            )
+
+            gate_weights = None
+
+
         elif self.mode == "alignment_mask":
+
             alignment_input = (
                 alignment_map
             )
@@ -359,25 +405,157 @@ class PartQueryAlignmentSegmenter(nn.Module):
                 )
             )
 
-        else:
-            alignment_input = (
-                alignment_map
+            fused = torch.cat(
+                [
+                    visual,
+                    text_map,
+                    mask_low,
+                    u_input,
+                    v_input,
+                    alignment_input,
+                ],
+                dim=1,
             )
 
-            u_input = u_low
-            v_input = v_low
+            gate_weights = None
 
-        fused = torch.cat(
-            [
-                visual,
-                text_map,
-                mask_low,
-                u_input,
-                v_input,
-                alignment_input,
-            ],
-            dim=1,
-        )
+
+        elif self.mode == "alignment_relative_uv":
+
+            fused = torch.cat(
+                [
+                    visual,
+                    text_map,
+                    mask_low,
+                    u_low,
+                    v_low,
+                    alignment_map,
+                ],
+                dim=1,
+            )
+
+            gate_weights = None
+
+
+        # =====================================
+        # Notebook 10 UVD modes
+        # =====================================
+
+        else:
+
+            if boundary_d is None:
+                raise ValueError(
+                    "boundary_d is required "
+                    f"for mode {self.mode}"
+                )
+
+            d_low = F.interpolate(
+                boundary_d,
+                size=spatial_size,
+                mode="bilinear",
+                align_corners=False,
+            )
+
+            d_low = (
+                d_low
+                * mask_low
+            )
+
+
+            if (
+                self.mode
+                == "alignment_fixed_uvd"
+            ):
+                gate_weights = torch.ones(
+                    (
+                        images.shape[0],
+                        3,
+                    ),
+                    device=images.device,
+                    dtype=visual.dtype,
+                )
+
+                weighted_u = u_low
+                weighted_v = v_low
+                weighted_d = d_low
+
+
+            else:
+
+                gate_weights = (
+                    self.geometry_gate(
+                        text_embeddings.float()
+                    )
+                )
+
+                alpha_u = (
+                    gate_weights[
+                        :,
+                        0,
+                    ]
+                    .view(
+                        -1,
+                        1,
+                        1,
+                        1,
+                    )
+                )
+
+                alpha_v = (
+                    gate_weights[
+                        :,
+                        1,
+                    ]
+                    .view(
+                        -1,
+                        1,
+                        1,
+                        1,
+                    )
+                )
+
+                alpha_d = (
+                    gate_weights[
+                        :,
+                        2,
+                    ]
+                    .view(
+                        -1,
+                        1,
+                        1,
+                        1,
+                    )
+                )
+
+                weighted_u = (
+                    alpha_u
+                    * u_low
+                )
+
+                weighted_v = (
+                    alpha_v
+                    * v_low
+                )
+
+                weighted_d = (
+                    alpha_d
+                    * d_low
+                )
+
+
+            fused = torch.cat(
+                [
+                    visual,
+                    text_map,
+                    mask_low,
+                    weighted_u,
+                    weighted_v,
+                    weighted_d,
+                    alignment_map,
+                ],
+                dim=1,
+            )
+
 
         logits_low = self.decoder(
             fused
@@ -402,9 +580,23 @@ class PartQueryAlignmentSegmenter(nn.Module):
 
             "object_mask_low":
                 mask_low,
+
+            "gate_weights":
+                gate_weights,
         }
+
+        if (
+            return_gate_weights
+            and gate_weights is not None
+        ):
+            return (
+                logits,
+                aux,
+                gate_weights,
+            )
 
         return (
             logits,
             aux,
         )
+    

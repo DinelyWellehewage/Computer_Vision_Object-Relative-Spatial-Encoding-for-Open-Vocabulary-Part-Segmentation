@@ -1,24 +1,15 @@
-#!/bin/bash -l
-
+#!/bin/bash
 #SBATCH --job-name=cv-part-zoom
-#SBATCH --gres=gpu:a40:1
-#SBATCH --time=12:00:00
-#SBATCH --export=NONE
+#SBATCH --partition=a100
+#SBATCH --gres=gpu:a100:1
+#SBATCH --cpus-per-task=16
+#SBATCH --time=04:00:00
 #SBATCH --output=logs/zoom_%j.out
 #SBATCH --error=logs/zoom_%j.err
 
-unset SLURM_EXPORT_ENV
-
-
 set -e
 
-
-cd "$HOME/Computer_Vision_Object-Relative-Spatial-Encoding-for-Open-Vocabulary-Part-Segmentation"
-
-
-module load python/3.12-base
-module load cuda/12.8.1
-
+cd "$SLURM_SUBMIT_DIR"
 
 source .venv/bin/activate
 
@@ -26,28 +17,11 @@ export HF_HUB_DISABLE_XET=1
 
 mkdir -p logs
 
-
-echo "========================================"
+echo "Starting object-centric training"
 echo "Job ID: $SLURM_JOB_ID"
-echo "Node: $(hostname)"
-echo "========================================"
-
-
-python - <<'PY'
-import torch
-
-print("PyTorch:", torch.__version__)
-print("CUDA build:", torch.version.cuda)
-print("CUDA available:", torch.cuda.is_available())
-
-if torch.cuda.is_available():
-    print("GPU:", torch.cuda.get_device_name(0))
-PY
-
-
-echo "========================================"
-echo "Starting object zoom training"
-echo "========================================"
-
+echo "Node: $SLURMD_NODENAME"
+echo "Start: $(date)"
 
 python scripts/train_object_zoom.py
+
+echo "Finished: $(date)"

@@ -9,6 +9,7 @@ from src.preprocessing import (
 
 from src.geometry import (
     create_relative_uv,
+    create_boundary_distance,
 )
 
 from src.object_zoom import (
@@ -136,6 +137,13 @@ class ObjectCentricDataset(Dataset):
         )
 
 
+        full_d = (
+            create_boundary_distance(
+                full_object
+            )
+        )
+
+
         # =====================================
         # Object-centric crop
         # =====================================
@@ -256,6 +264,13 @@ class ObjectCentricDataset(Dataset):
         )
 
 
+        crop_d = (
+            create_boundary_distance(
+                crop_object
+            )
+        )
+
+
         part_to_object_ratio = (
             full_part.sum().float()
             /
@@ -315,6 +330,9 @@ class ObjectCentricDataset(Dataset):
             "full_relative_v":
                 full_v,
 
+            "full_boundary_d":
+                full_d,
+
 
             # =========================
             # Crop view
@@ -337,6 +355,9 @@ class ObjectCentricDataset(Dataset):
 
             "crop_relative_v":
                 crop_v,
+
+            "crop_boundary_d":
+                crop_d,
 
 
             # =========================
@@ -362,3 +383,4 @@ class ObjectCentricDataset(Dataset):
             "part_to_object_ratio":
                 part_to_object_ratio,
         }
+    

@@ -44,7 +44,7 @@ from src.metrics import (
 )
 
 
-MODE = "alignment_relative_uv"
+MODE = "alignment_fixed_uvd"
 
 SEED = 42
 
@@ -127,7 +127,7 @@ def encode_queries(
 def get_trainable_state(
     model,
 ):
-    return {
+    state = {
         "visual_projection":
             model.visual_projection.state_dict(),
 
@@ -140,6 +140,13 @@ def get_trainable_state(
         "decoder":
             model.decoder.state_dict(),
     }
+
+    if model.geometry_gate is not None:
+        state["geometry_gate"] = (
+            model.geometry_gate.state_dict()
+        )
+
+    return state
 
 
 def run_epoch(
@@ -218,6 +225,14 @@ def run_epoch(
         )
 
 
+        boundary_d = batch[
+            "crop_boundary_d"
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
+
+
         text_embeddings = encode_queries(
             clip_model,
             tokenizer,
@@ -245,13 +260,26 @@ def run_epoch(
                 dtype=torch.float16,
                 enabled=USE_AMP,
             ):
-                logits, aux = model(
-                    images,
-                    text_embeddings,
-                    object_masks,
-                    relative_u,
-                    relative_v,
-                )
+                if MODE in {
+                    "alignment_fixed_uvd",
+                    "alignment_query_gated_uvd",
+                }:
+                    logits, aux = model(
+                        images,
+                        text_embeddings,
+                        object_masks,
+                        relative_u,
+                        relative_v,
+                        boundary_d,
+                    )
+                else:
+                    logits, aux = model(
+                        images,
+                        text_embeddings,
+                        object_masks,
+                        relative_u,
+                        relative_v,
+                    )
 
 
                 losses = (
@@ -890,3 +918,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
