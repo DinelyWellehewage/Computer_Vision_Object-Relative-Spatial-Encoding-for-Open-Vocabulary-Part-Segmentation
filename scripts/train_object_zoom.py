@@ -44,7 +44,7 @@ from src.metrics import (
 )
 
 
-MODE = "alignment_fixed_uvd"
+MODE = "alignment_query_gated_uvd"
 
 SEED = 42
 

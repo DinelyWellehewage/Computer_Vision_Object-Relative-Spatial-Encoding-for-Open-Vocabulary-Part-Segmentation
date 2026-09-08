@@ -430,3 +430,61 @@ Therefore, query-conditioned weighting did not improve validation IoU in this fu
 | Query-Gated UVD | 0.3273 |
 
 The boundary-distance channel provides a small improvement when used directly, while the learned query gate does not improve validation performance in this setting.
+
+### 4.4 Object Zoom + Alignment Fixed UVD
+
+**Status:** Completed
+
+| Metric | Result |
+|---|---:|
+| Best epoch | 15 |
+| Best validation IoU | **0.3829** |
+| Validation Dice at best epoch | **0.4830** |
+| Validation loss at best epoch | 0.7186 |
+| Train IoU at best epoch | 0.4644 |
+| Train loss at best epoch | 0.6168 |
+| Total epochs | 20 |
+| Training runtime | ~1 h 42 min |
+
+Artifacts:
+
+- `outputs/object_zoom/alignment_fixed_uvd/best.pt`
+- `outputs/object_zoom/alignment_fixed_uvd/last.pt`
+- `outputs/object_zoom/alignment_fixed_uvd/history.json`
+- `outputs/object_zoom/alignment_fixed_uvd/config.json`
+
+Compared with the existing crop variants, fixed UVD does not improve validation IoU over `alignment_mask` (0.3878) or `alignment_relative_uv` (0.3847).
+
+### 4.5 Object Zoom + Alignment Query-Gated UVD
+
+**Status:** Completed
+
+| Metric | Result |
+|---|---:|
+| Best epoch | 15 |
+| Best validation IoU | **0.3835** |
+| Validation Dice at best epoch | **0.4809** |
+| Validation loss at best epoch | 0.7214 |
+| Train IoU at best epoch | 0.4685 |
+| Train loss at best epoch | 0.6123 |
+| Total epochs | 20 |
+| Training runtime | ~1 h 41 min |
+
+Artifacts:
+
+- `outputs/object_zoom/alignment_query_gated_uvd/best.pt`
+- `outputs/object_zoom/alignment_query_gated_uvd/last.pt`
+- `outputs/object_zoom/alignment_query_gated_uvd/history.json`
+- `outputs/object_zoom/alignment_query_gated_uvd/config.json`
+
+### Object-Zoom Validation Comparison
+
+| Model | Best validation IoU |
+|---|---:|
+| Object Zoom | 0.3732 |
+| Object Zoom + Alignment Mask | **0.3878** |
+| Object Zoom + Alignment Relative UV | 0.3847 |
+| Object Zoom + Alignment Fixed UVD | 0.3829 |
+| Object Zoom + Alignment Query-Gated UVD | 0.3835 |
+
+The query-gated UVD variant slightly improves over fixed UVD, but neither UVD variant outperforms the simpler alignment-mask model. Therefore, the best object-centric validation model remains `alignment_mask`.
