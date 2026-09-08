@@ -303,10 +303,44 @@ rotation_table = (
 )
 
 
-st.dataframe(
-    rotation_table,
-    width="stretch",
-    hide_index=True,
+rotation_table_display = (
+    rotation_table
+    .copy()
+)
+
+
+rotation_table_display[
+    "IoU"
+] = (
+    rotation_table_display[
+        "IoU"
+    ].map(
+        lambda x: f"{x:.4f}"
+    )
+)
+
+
+rotation_table_display[
+    "Dice"
+] = (
+    rotation_table_display[
+        "Dice"
+    ].map(
+        lambda x: f"{x:.4f}"
+    )
+)
+
+
+rotation_table_display = (
+    rotation_table_display
+    .reset_index(
+        drop=True
+    )
+)
+
+
+st.table(
+    rotation_table_display
 )
 
 
@@ -338,6 +372,7 @@ for model_name in (
         ]
     )
 
+
     row_0 = (
         model_rows[
             model_rows[
@@ -346,6 +381,7 @@ for model_name in (
             == 0
         ]
     )
+
 
     row_90 = (
         model_rows[
@@ -371,6 +407,7 @@ for model_name in (
                 "iou"
             ]
         )
+
 
         iou_90 = (
             row_90.iloc[0][
@@ -414,10 +451,66 @@ degradation_df = pd.DataFrame(
 
 if not degradation_df.empty:
 
-    st.dataframe(
-        degradation_df,
-        width="stretch",
-        hide_index=True,
+    degradation_display = (
+        degradation_df
+        .copy()
+    )
+
+
+    degradation_display[
+        "IoU at 0°"
+    ] = (
+        degradation_display[
+            "IoU at 0°"
+        ].map(
+            lambda x: f"{x:.4f}"
+        )
+    )
+
+
+    degradation_display[
+        "IoU at 90°"
+    ] = (
+        degradation_display[
+            "IoU at 90°"
+        ].map(
+            lambda x: f"{x:.4f}"
+        )
+    )
+
+
+    degradation_display[
+        "Absolute Drop"
+    ] = (
+        degradation_display[
+            "Absolute Drop"
+        ].map(
+            lambda x: f"{x:.4f}"
+        )
+    )
+
+
+    degradation_display[
+        "Relative Drop (%)"
+    ] = (
+        degradation_display[
+            "Relative Drop (%)"
+        ].map(
+            lambda x: f"{x:.1f}%"
+        )
+    )
+
+
+    degradation_display = (
+        degradation_display
+        .reset_index(
+            drop=True
+        )
+    )
+
+
+    st.table(
+        degradation_display
     )
 
 
@@ -592,11 +685,23 @@ mask_table = (
     mask_noise[
         [
             "Model",
+            "condition",
             "Condition",
             "iou",
             "dice",
         ]
     ]
+    .sort_values(
+        [
+            "condition",
+            "Model",
+        ]
+    )
+    .drop(
+        columns=[
+            "condition"
+        ]
+    )
     .rename(
         columns={
             "iou":
@@ -609,10 +714,44 @@ mask_table = (
 )
 
 
-st.dataframe(
-    mask_table,
-    width="stretch",
-    hide_index=True,
+mask_table_display = (
+    mask_table
+    .copy()
+)
+
+
+mask_table_display[
+    "IoU"
+] = (
+    mask_table_display[
+        "IoU"
+    ].map(
+        lambda x: f"{x:.4f}"
+    )
+)
+
+
+mask_table_display[
+    "Dice"
+] = (
+    mask_table_display[
+        "Dice"
+    ].map(
+        lambda x: f"{x:.4f}"
+    )
+)
+
+
+mask_table_display = (
+    mask_table_display
+    .reset_index(
+        drop=True
+    )
+)
+
+
+st.table(
+    mask_table_display
 )
 
 
@@ -685,6 +824,7 @@ if (
             "iou"
         ]
     )
+
 
     relative_iou = (
         relative_clean.iloc[0][
