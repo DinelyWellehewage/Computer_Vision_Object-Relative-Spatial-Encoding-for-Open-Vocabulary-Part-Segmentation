@@ -1,37 +1,8 @@
-from pathlib import Path
-
-import pandas as pd
 import streamlit as st
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-DASHBOARD_DATA = (
-    PROJECT_ROOT
-    / "outputs"
-    / "dashboard"
-)
-
-SUMMARY_PATH = (
-    DASHBOARD_DATA
-    / "experiment_summary.csv"
-)
-
-HISTORY_PATH = (
-    DASHBOARD_DATA
-    / "epoch_history.csv"
-)
-
-TEST_PATH = (
-    DASHBOARD_DATA
-    / "final_test_results.csv"
-)
-
-
 st.set_page_config(
-    page_title=(
-        "Open-Vocabulary Part Segmentation"
-    ),
+    page_title="Open-Vocabulary Part Segmentation",
     page_icon="🧩",
     layout="wide",
 )
@@ -49,75 +20,60 @@ st.caption(
 )
 
 
-# ============================================================
-# Data loading
-# ============================================================
-
-@st.cache_data
-def load_summary():
-    return pd.read_csv(
-        SUMMARY_PATH
-    )
-
-
-@st.cache_data
-def load_history():
-    return pd.read_csv(
-        HISTORY_PATH
-    )
-
-
-@st.cache_data
-def load_test_results():
-    if not TEST_PATH.is_file():
-        return None
-
-    return pd.read_csv(
-        TEST_PATH
-    )
-
-
-if not SUMMARY_PATH.is_file():
-    st.error(
-        f"Missing: {SUMMARY_PATH}"
-    )
-    st.stop()
-
-
-summary = load_summary()
-history = load_history()
-test_results = load_test_results()
-
-
-# ============================================================
-# Project overview
-# ============================================================
-
-st.header(
-    "Project Overview"
-)
-
-st.write(
+st.markdown(
     """
-This project investigates whether object-relative geometry
-improves text-conditioned part segmentation.
+### Multimodal AI Systems
 
-The model combines frozen DINOv2 visual features, frozen CLIP
-text embeddings, a parent-object mask, and geometric cues
-representing horizontal position (U), vertical position (V),
-and normalized distance from the object boundary (D).
+This dashboard presents the experiments for text-conditioned
+open-vocabulary object-part segmentation.
 
-The final query-gated model learns how strongly each geometric
-cue should contribute for a given part query.
+The system combines:
+
+- frozen **DINOv2** visual features,
+- frozen **CLIP** text features,
+- a parent-object mask,
+- object-relative **U/V/D geometry**,
+- query-conditioned geometry weighting,
+- object-centric cropping,
+- and a lightweight segmentation decoder.
+
+Use the pages in the sidebar to explore the project, compare
+experiments, inspect training behavior, study seen-vs-unseen
+generalization, and run qualitative predictions.
 """
 )
 
 
-# ============================================================
-# Research question
-# ============================================================
+st.divider()
 
-st.header(
+
+c1, c2, c3, c4 = st.columns(4)
+
+c1.metric(
+    "Train samples",
+    "32,698",
+)
+
+c2.metric(
+    "Validation samples",
+    "3,708",
+)
+
+c3.metric(
+    "Test seen",
+    "3,371",
+)
+
+c4.metric(
+    "Test unseen",
+    "1,586",
+)
+
+
+st.divider()
+
+
+st.subheader(
     "Research Question"
 )
 
@@ -131,341 +87,49 @@ for unseen parent-object categories?
 )
 
 
-
-col1, col2, col3, col4 = st.columns(
-    4
+st.subheader(
+    "Main Experimental Finding"
 )
 
-col1.metric(
-    "Train samples",
-    "32,698",
-)
+st.success(
+    """
+Object-centric cropping combined with query alignment provides
+the strongest overall performance.
 
-col2.metric(
-    "Validation samples",
-    "3,708",
-)
+The simpler Object Zoom + Alignment Mask model achieves the
+best validation IoU and the best unseen-category test IoU.
 
-col3.metric(
-    "Test seen",
-    "3,371",
-)
-
-col4.metric(
-    "Test unseen",
-    "1,586",
-)
-
-
-# ============================================================
-# Experiment ranking
-# ============================================================
-
-st.header(
-    "Validation Performance"
-)
-
-ranking = (
-    summary
-    .sort_values(
-        "best_val_iou",
-        ascending=False,
-    )
-    .copy()
-)
-
-ranking[
-    "experiment"
-] = (
-    ranking["family"]
-    + " / "
-    + ranking["mode"]
-)
-
-
-best_row = ranking.iloc[0]
-
-m1, m2, m3 = st.columns(
-    3
-)
-
-m1.metric(
-    "Best model",
-    best_row["mode"],
-)
-
-m2.metric(
-    "Best validation IoU",
-    f"{best_row['best_val_iou']:.4f}",
-)
-
-m3.metric(
-    "Validation Dice",
-    f"{best_row['best_val_dice']:.4f}",
+Adding fixed U/V/D geometry or query-gated U/V/D does not
+further improve unseen-category generalization.
+"""
 )
 
 
 st.subheader(
-    "Model Ranking"
+    "Dashboard"
 )
 
-chart_data = (
-    ranking[
-        [
-            "experiment",
-            "best_val_iou",
-        ]
-    ]
-    .set_index(
-        "experiment"
-    )
+st.markdown(
+    """
+Use the sidebar to navigate:
+
+**Project Overview**  
+Method, motivation, dataset, and experimental design.
+
+**Experiment Results**  
+Validation ranking across all completed experiments.
+
+**Training Curves**  
+Epoch-by-epoch IoU, Dice, and loss.
+
+**Seen vs Unseen**  
+Final generalization comparison.
+
+**Qualitative Demo**  
+Run a trained model on an unseen test sample and visualize
+its prediction.
+
+**Geometry Analysis**  
+Inspect U, V, D maps and query-conditioned geometry weights.
+"""
 )
-
-st.bar_chart(
-    chart_data
-)
-
-
-display_columns = [
-    "family",
-    "mode",
-    "best_epoch",
-    "best_val_iou",
-    "best_val_dice",
-    "best_val_loss",
-    "train_iou_at_best",
-    "epochs",
-]
-
-st.dataframe(
-    ranking[
-        display_columns
-    ],
-    width="stretch",
-    hide_index=True,
-)
-
-
-# ============================================================
-# Training curves
-# ============================================================
-
-st.header(
-    "Training Curves"
-)
-
-history = history.copy()
-
-history[
-    "experiment"
-] = (
-    history["family"]
-    + " / "
-    + history["mode"]
-)
-
-
-experiments = sorted(
-    history[
-        "experiment"
-    ].unique()
-)
-
-
-selected_experiment = st.selectbox(
-    "Experiment",
-    experiments,
-)
-
-
-selected = history[
-    history["experiment"]
-    == selected_experiment
-].sort_values(
-    "epoch"
-)
-
-
-st.subheader(
-    "IoU"
-)
-
-iou_data = (
-    selected[
-        [
-            "epoch",
-            "train_iou",
-            "val_iou",
-        ]
-    ]
-    .set_index(
-        "epoch"
-    )
-)
-
-st.line_chart(
-    iou_data
-)
-
-
-st.subheader(
-    "Dice"
-)
-
-dice_columns = [
-    column
-    for column in [
-        "train_dice",
-        "val_dice",
-    ]
-    if column in selected.columns
-]
-
-if dice_columns:
-
-    dice_data = (
-        selected[
-            [
-                "epoch",
-                *dice_columns,
-            ]
-        ]
-        .set_index(
-            "epoch"
-        )
-    )
-
-    st.line_chart(
-        dice_data
-    )
-
-
-st.subheader(
-    "Loss"
-)
-
-loss_columns = [
-    column
-    for column in [
-        "train_loss",
-        "val_loss",
-    ]
-    if column in selected.columns
-]
-
-if loss_columns:
-
-    loss_data = (
-        selected[
-            [
-                "epoch",
-                *loss_columns,
-            ]
-        ]
-        .set_index(
-            "epoch"
-        )
-    )
-
-    st.line_chart(
-        loss_data
-    )
-
-
-# ============================================================
-# Final seen / unseen results
-# ============================================================
-
-st.header(
-    "Seen vs Unseen Generalization"
-)
-
-if test_results is None:
-
-    st.info(
-        "Final test results are not available yet."
-    )
-
-else:
-
-    st.dataframe(
-        test_results,
-        width="stretch",
-        hide_index=True,
-    )
-
-    comparison = (
-        test_results
-        .pivot(
-            index="model",
-            columns="split",
-            values="iou",
-        )
-        .rename(
-            columns={
-                "test_seen":
-                    "Seen IoU",
-
-                "test_unseen":
-                    "Unseen IoU",
-            }
-        )
-    )
-
-    st.subheader(
-        "IoU Comparison"
-    )
-
-    st.bar_chart(
-        comparison
-    )
-
-
-    dice_comparison = (
-        test_results
-        .pivot(
-            index="model",
-            columns="split",
-            values="dice",
-        )
-        .rename(
-            columns={
-                "test_seen":
-                    "Seen Dice",
-
-                "test_unseen":
-                    "Unseen Dice",
-            }
-        )
-    )
-
-    st.subheader(
-        "Dice Comparison"
-    )
-
-    st.bar_chart(
-        dice_comparison
-    )
-
-
-    unseen_rows = (
-        test_results[
-            test_results["split"]
-            == "test_unseen"
-        ]
-        .sort_values(
-            "iou",
-            ascending=False,
-        )
-    )
-
-    best_unseen = (
-        unseen_rows.iloc[0]
-    )
-
-    st.success(
-        "Best unseen-category model: "
-        f"{best_unseen['model']} "
-        f"(IoU {best_unseen['iou']:.4f})"
-    )
-
