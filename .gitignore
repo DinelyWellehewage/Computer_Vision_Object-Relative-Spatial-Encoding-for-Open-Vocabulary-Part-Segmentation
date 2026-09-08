@@ -3,7 +3,12 @@ __pycache__/
 *.pyc
 
 data/
-outputs/
+
+outputs/*
+!outputs/dashboard/
+!outputs/dashboard/*.csv
+!outputs/robustness/
+!outputs/robustness/robustness_results.json
 
 .ipynb_checkpoints/
 

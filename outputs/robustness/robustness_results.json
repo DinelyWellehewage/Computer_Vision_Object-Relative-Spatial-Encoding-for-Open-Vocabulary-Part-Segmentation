@@ -1,0 +1,290 @@
+[
+  {
+    "mode": "object_mask",
+    "perturbation": "rotation",
+    "value": 0,
+    "iou": 0.22655003302710655,
+    "dice": 0.30396534151116955,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "rotation",
+    "value": 15,
+    "iou": 0.2280236966109366,
+    "dice": 0.3058090081807193,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "rotation",
+    "value": 30,
+    "iou": 0.22039561403955216,
+    "dice": 0.29518238502973865,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "rotation",
+    "value": 45,
+    "iou": 0.21517209733118775,
+    "dice": 0.290520818958066,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "rotation",
+    "value": 90,
+    "iou": 0.1895404225414969,
+    "dice": 0.25811817137169807,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "clean",
+    "iou": 0.22654587813990112,
+    "dice": 0.30396138077124973,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "erode_5",
+    "iou": 0.2110413314978983,
+    "dice": 0.28368694157648505,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "erode_11",
+    "iou": 0.1834483318134184,
+    "dice": 0.24831458319255714,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "dilate_5",
+    "iou": 0.23824927569713447,
+    "dice": 0.32008891803544826,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "dilate_11",
+    "iou": 0.24352028492420047,
+    "dice": 0.32872379735619545,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "shift_5",
+    "iou": 0.22206854382424157,
+    "dice": 0.29851421916770454,
+    "samples": 1586
+  },
+  {
+    "mode": "object_mask",
+    "perturbation": "mask_noise",
+    "value": "shift_15",
+    "iou": 0.1932572697631047,
+    "dice": 0.2630739521709697,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "rotation",
+    "value": 0,
+    "iou": 0.2578092076138019,
+    "dice": 0.34321731592036436,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "rotation",
+    "value": 15,
+    "iou": 0.256860526445384,
+    "dice": 0.3433053420215357,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "rotation",
+    "value": 30,
+    "iou": 0.2459175805426185,
+    "dice": 0.3277129953325471,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "rotation",
+    "value": 45,
+    "iou": 0.24157611997551456,
+    "dice": 0.32288919342270717,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "rotation",
+    "value": 90,
+    "iou": 0.2093399465084076,
+    "dice": 0.28290227822217184,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "clean",
+    "iou": 0.25781336558271023,
+    "dice": 0.3432206387477745,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "erode_5",
+    "iou": 0.24282859139905452,
+    "dice": 0.3236971411097696,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "erode_11",
+    "iou": 0.20144371092695307,
+    "dice": 0.2717943240760404,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "dilate_5",
+    "iou": 0.26648064354178586,
+    "dice": 0.3549349214059558,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "dilate_11",
+    "iou": 0.2657186058250081,
+    "dice": 0.3562029950781097,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "shift_5",
+    "iou": 0.2522110197538085,
+    "dice": 0.33656099525105304,
+    "samples": 1586
+  },
+  {
+    "mode": "absolute_xy",
+    "perturbation": "mask_noise",
+    "value": "shift_15",
+    "iou": 0.21234895091640094,
+    "dice": 0.2884556787912963,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "rotation",
+    "value": 0,
+    "iou": 0.27288514315555856,
+    "dice": 0.36491265866675265,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "rotation",
+    "value": 15,
+    "iou": 0.2725303545876078,
+    "dice": 0.3635112211051835,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "rotation",
+    "value": 30,
+    "iou": 0.26182697286822304,
+    "dice": 0.35003949493207365,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "rotation",
+    "value": 45,
+    "iou": 0.25027592991294356,
+    "dice": 0.33647638561220516,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "rotation",
+    "value": 90,
+    "iou": 0.21073434440816036,
+    "dice": 0.2863335965710961,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "clean",
+    "iou": 0.2729018949921164,
+    "dice": 0.36493092850508335,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "erode_5",
+    "iou": 0.25595362760680923,
+    "dice": 0.34238710229063096,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "erode_11",
+    "iou": 0.21736627644277912,
+    "dice": 0.2934209074529092,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "dilate_5",
+    "iou": 0.2828227261276293,
+    "dice": 0.3784093870340951,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "dilate_11",
+    "iou": 0.28125385385744206,
+    "dice": 0.3784994036335061,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "shift_5",
+    "iou": 0.2676598291754873,
+    "dice": 0.35894407608169326,
+    "samples": 1586
+  },
+  {
+    "mode": "relative_uv",
+    "perturbation": "mask_noise",
+    "value": "shift_15",
+    "iou": 0.22519405375964102,
+    "dice": 0.3076573145043805,
+    "samples": 1586
+  }
+]

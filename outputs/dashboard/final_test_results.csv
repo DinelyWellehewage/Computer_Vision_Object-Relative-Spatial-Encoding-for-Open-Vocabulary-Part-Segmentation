@@ -1,0 +1,7 @@
+model,mode,split,iou,dice
+Object Zoom + Alignment Mask,alignment_mask,test_seen,0.37661739488713203,0.4818222721129786
+Object Zoom + Alignment Mask,alignment_mask,test_unseen,0.31694983794884746,0.41813502946065817
+Object Zoom + Alignment Fixed UVD,alignment_fixed_uvd,test_seen,0.37276844475040094,0.47782910096923614
+Object Zoom + Alignment Fixed UVD,alignment_fixed_uvd,test_unseen,0.3091304420518977,0.4089933269697052
+Object Zoom + Alignment Query-Gated UVD,alignment_query_gated_uvd,test_seen,0.37518267943862604,0.47905249073374156
+Object Zoom + Alignment Query-Gated UVD,alignment_query_gated_uvd,test_unseen,0.3074290071738723,0.4056026063434319
