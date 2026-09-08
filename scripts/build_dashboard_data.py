@@ -314,14 +314,108 @@ write_csv(
 
 
 # ============================================================
-# Existing final test evaluation
+# Final seen / unseen evaluation
 # ============================================================
 
-test_source = (
+test_rows = []
+
+
+# Existing selected alignment-mask evaluation
+alignment_mask_path = (
     OUTPUT_ROOT
     / "object_zoom_evaluation"
     / "object_zoom_results.json"
 )
+
+if alignment_mask_path.is_file():
+
+    raw = json.loads(
+        alignment_mask_path.read_text()
+    )
+
+    for row in raw:
+
+        crop = row.get(
+            "object_crop",
+            {}
+        )
+
+        test_rows.append(
+            {
+                "model":
+                    "Object Zoom + Alignment Mask",
+
+                "mode":
+                    "alignment_mask",
+
+                "split":
+                    row["split"],
+
+                "iou":
+                    crop.get("iou"),
+
+                "dice":
+                    crop.get("dice"),
+            }
+        )
+
+
+# New crop-UVD evaluations
+uvd_test_files = [
+    (
+        "Object Zoom + Alignment Fixed UVD",
+        "alignment_fixed_uvd",
+        OUTPUT_ROOT
+        / "object_zoom_evaluation"
+        / "alignment_fixed_uvd_results.json",
+    ),
+
+    (
+        "Object Zoom + Alignment Query-Gated UVD",
+        "alignment_query_gated_uvd",
+        OUTPUT_ROOT
+        / "object_zoom_evaluation"
+        / "alignment_query_gated_uvd_results.json",
+    ),
+]
+
+
+for display_name, mode, path in uvd_test_files:
+
+    if not path.is_file():
+        print(
+            "Missing final test result:",
+            path,
+        )
+        continue
+
+    raw = json.loads(
+        path.read_text()
+    )
+
+    for row in raw[
+        "results"
+    ]:
+
+        test_rows.append(
+            {
+                "model":
+                    display_name,
+
+                "mode":
+                    mode,
+
+                "split":
+                    row["split"],
+
+                "iou":
+                    row["iou"],
+
+                "dice":
+                    row["dice"],
+            }
+        )
+
 
 test_output = (
     DASHBOARD_DIR
@@ -329,73 +423,10 @@ test_output = (
 )
 
 
-if test_source.is_file():
-
-    raw_test = json.loads(
-        test_source.read_text()
-    )
-
-    test_rows = []
-
-    for row in raw_test:
-
-        split = row.get(
-            "split",
-            "unknown",
-        )
-
-        full = row.get(
-            "full_image",
-            {},
-        )
-
-        crop = row.get(
-            "object_crop",
-            {},
-        )
-
-        test_rows.append(
-            {
-                "split":
-                    split,
-
-                "full_image_iou":
-                    full.get("iou"),
-
-                "full_image_dice":
-                    full.get("dice"),
-
-                "object_crop_iou":
-                    crop.get("iou"),
-
-                "object_crop_dice":
-                    crop.get("dice"),
-
-                "crop_iou_gain":
-                    (
-                        crop.get("iou")
-                        - full.get("iou")
-                        if (
-                            crop.get("iou")
-                            is not None
-                            and full.get("iou")
-                            is not None
-                        )
-                        else None
-                    ),
-            }
-        )
-
-    write_csv(
-        test_output,
-        test_rows,
-    )
-
-else:
-    print(
-        "Missing final test results:",
-        test_source,
-    )
+write_csv(
+    test_output,
+    test_rows,
+)
 
 
 print()

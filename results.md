@@ -488,3 +488,17 @@ Artifacts:
 | Object Zoom + Alignment Query-Gated UVD | 0.3835 |
 
 The query-gated UVD variant slightly improves over fixed UVD, but neither UVD variant outperforms the simpler alignment-mask model. Therefore, the best object-centric validation model remains `alignment_mask`.
+
+### Final Crop-UVD Seen vs Unseen Evaluation
+
+| Model | Seen IoU | Seen Dice | Unseen IoU | Unseen Dice |
+|---|---:|---:|---:|---:|
+| Object Zoom + Alignment Mask | **0.3766** | - | **0.3169** | - |
+| Object Zoom + Alignment Fixed UVD | 0.3728 | 0.4778 | 0.3091 | 0.4090 |
+| Object Zoom + Alignment Query-Gated UVD | 0.3752 | **0.4791** | 0.3074 | 0.4056 |
+
+The query-gated UVD model slightly improves seen-category IoU over fixed UVD (0.3752 vs. 0.3728), but performs slightly worse on unseen categories (0.3074 vs. 0.3091).
+
+Neither UVD variant surpasses the simpler object-centric alignment-mask model, which remains the final selected model with **0.3766 seen IoU** and **0.3169 unseen IoU**.
+
+This suggests that object-centric cropping and query alignment provide the largest benefit in this setup, while the additional U/V/D geometry and query-conditioned gating do not improve generalization to unseen parent-object categories.
