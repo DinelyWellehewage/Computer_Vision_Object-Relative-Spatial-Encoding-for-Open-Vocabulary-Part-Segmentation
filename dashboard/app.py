@@ -113,6 +113,25 @@ cue should contribute for a given part query.
 )
 
 
+# ============================================================
+# Research question
+# ============================================================
+
+st.header(
+    "Research Question"
+)
+
+st.info(
+    """
+Can query-adaptive object-relative geometry improve
+open-vocabulary part segmentation by exploiting complementary
+horizontal, vertical, and boundary-distance cues, particularly
+for unseen parent-object categories?
+"""
+)
+
+
+
 col1, col2, col3, col4 = st.columns(
     4
 )
@@ -375,48 +394,78 @@ else:
         hide_index=True,
     )
 
-    numeric_columns = [
-        column
-        for column in [
-            "full_image_iou",
-            "object_crop_iou",
-            "iou",
+    comparison = (
+        test_results
+        .pivot(
+            index="model",
+            columns="split",
+            values="iou",
+        )
+        .rename(
+            columns={
+                "test_seen":
+                    "Seen IoU",
+
+                "test_unseen":
+                    "Unseen IoU",
+            }
+        )
+    )
+
+    st.subheader(
+        "IoU Comparison"
+    )
+
+    st.bar_chart(
+        comparison
+    )
+
+
+    dice_comparison = (
+        test_results
+        .pivot(
+            index="model",
+            columns="split",
+            values="dice",
+        )
+        .rename(
+            columns={
+                "test_seen":
+                    "Seen Dice",
+
+                "test_unseen":
+                    "Unseen Dice",
+            }
+        )
+    )
+
+    st.subheader(
+        "Dice Comparison"
+    )
+
+    st.bar_chart(
+        dice_comparison
+    )
+
+
+    unseen_rows = (
+        test_results[
+            test_results["split"]
+            == "test_unseen"
         ]
-        if column in test_results.columns
-    ]
-
-    if numeric_columns:
-
-        plot_data = (
-            test_results[
-                [
-                    "split",
-                    *numeric_columns,
-                ]
-            ]
-            .set_index(
-                "split"
-            )
+        .sort_values(
+            "iou",
+            ascending=False,
         )
+    )
 
-        st.bar_chart(
-            plot_data
-        )
+    best_unseen = (
+        unseen_rows.iloc[0]
+    )
 
+    st.success(
+        "Best unseen-category model: "
+        f"{best_unseen['model']} "
+        f"(IoU {best_unseen['iou']:.4f})"
+    )
 
-# ============================================================
-# Research question
-# ============================================================
-
-st.header(
-    "Research Question"
-)
-
-st.info(
-    """
-Can query-adaptive object-relative geometry improve
-open-vocabulary part segmentation by exploiting complementary
-horizontal, vertical, and boundary-distance cues, particularly
-for unseen parent-object categories?
-"""
-)
