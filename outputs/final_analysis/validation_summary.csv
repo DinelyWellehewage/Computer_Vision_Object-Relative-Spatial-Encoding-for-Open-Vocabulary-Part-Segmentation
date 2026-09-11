@@ -1,0 +1,12 @@
+experiment,status,best_epoch,val_loss,val_iou,val_dice
+baseline/part_only,available,1.0,1.1046503484249115,0.056809301662724465,0.056809301662724465
+baseline/object_mask,available,1.0,1.0843994915485382,0.056809301662724465,0.056809301662724465
+geometry/object_mask,available,1.0,1.3336366415023804,0.056809306144714355,0.056809306144714355
+geometry/absolute_xy,missing,,,,
+geometry/relative_uv,missing,,,,
+alignment/mask_baseline,missing,,,,
+alignment/alignment_mask,missing,,,,
+alignment/alignment_relative_uv,missing,,,,
+object_zoom/mask_baseline,missing,,,,
+object_zoom/alignment_mask,missing,,,,
+object_zoom/alignment_relative_uv,missing,,,,

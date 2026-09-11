@@ -4,11 +4,7 @@ __pycache__/
 
 data/
 
-outputs/*
-!outputs/dashboard/
-!outputs/dashboard/*.csv
-!outputs/robustness/
-!outputs/robustness/robustness_results.json
+
 
 .ipynb_checkpoints/
 

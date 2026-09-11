@@ -1,0 +1,16 @@
+{
+  "mode": "object_mask",
+  "smoke_test": true,
+  "seed": 42,
+  "image_size": 224,
+  "epochs": 1,
+  "train_batch_size": 16,
+  "val_batch_size": 16,
+  "learning_rate": 0.001,
+  "weight_decay": 0.0001,
+  "visual_dim": 128,
+  "text_dim": 32,
+  "mask_threshold": 0.5,
+  "dino": "dinov2_vits14",
+  "clip": "ViT-B-32/openai"
+}
