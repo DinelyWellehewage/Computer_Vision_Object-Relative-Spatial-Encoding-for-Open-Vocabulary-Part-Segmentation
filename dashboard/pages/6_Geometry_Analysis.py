@@ -218,7 +218,6 @@ axes[4].set_title(
 
 
 for ax in axes:
-
     ax.axis(
         "off"
     )
@@ -238,8 +237,11 @@ plt.close(
 )
 
 
-st.divider()
+# ============================================================
+# Geometry Interpretation
+# ============================================================
 
+st.divider()
 
 st.subheader(
     "Geometry Interpretation"
@@ -257,11 +259,12 @@ with g1:
         """
 ### U
 
-Normalized horizontal position inside the
-parent-object bounding region.
+Normalized horizontal coordinate of each
+object pixel relative to the parent object's
+bounding box.
 
-- left → small values
-- right → large values
+- left side of object → small values
+- right side of object → large values
 """
     )
 
@@ -272,11 +275,12 @@ with g2:
         """
 ### V
 
-Normalized vertical position inside the
-parent-object bounding region.
+Normalized vertical coordinate of each
+object pixel relative to the parent object's
+bounding box.
 
-- top → small values
-- bottom → large values
+- top of object → small values
+- bottom of object → large values
 """
     )
 
@@ -295,126 +299,7 @@ Normalized distance from the object boundary.
     )
 
 
-st.divider()
-
-
-st.subheader(
-    "Query-Gated Geometry"
-)
-
-
-mode = (
-    "alignment_query_gated_uvd"
-)
-
-
-if not checkpoint_exists(
-    mode
-):
-
-    st.warning(
-        "Query-gated checkpoint is not available "
-        "on this machine."
-    )
-
-else:
-
-    with st.spinner(
-        "Computing query-gated weights..."
-    ):
-
-        result = predict_sample(
-            sample,
-            mode,
-        )
-
-
-    gate_weights = (
-        result[
-            "aux"
-        ].get(
-            "gate_weights"
-        )
-    )
-
-
-    if gate_weights is not None:
-
-        weights = (
-            gate_weights[
-                0
-            ]
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
-
-        c1, c2, c3 = st.columns(
-            3
-        )
-
-        c1.metric(
-            "α U",
-            f"{weights[0]:.3f}",
-        )
-
-        c2.metric(
-            "α V",
-            f"{weights[1]:.3f}",
-        )
-
-        c3.metric(
-            "α D",
-            f"{weights[2]:.3f}",
-        )
-
-
-        weight_df = pd.DataFrame(
-            {
-                "Geometry":
-                    [
-                        "U",
-                        "V",
-                        "D",
-                    ],
-
-                "Weight":
-                    weights,
-            }
-        )
-
-
-        st.bar_chart(
-            weight_df.set_index(
-                "Geometry"
-            )
-        )
-
-
-        dominant_index = (
-            weights.argmax()
-        )
-
-        dominant_geometry = (
-            [
-                "U",
-                "V",
-                "D",
-            ][
-                dominant_index
-            ]
-        )
-
-
-        st.info(
-            f"For the query "
-            f"**{sample['query']}**, "
-            f"the largest learned geometry weight "
-            f"is **{dominant_geometry}**."
-        )
-
-        # ============================================================
+# ============================================================
 # Fixed vs Query-Gated Geometry
 # ============================================================
 
@@ -643,6 +528,340 @@ if gated_result is not None:
             f"the largest learned geometry weight is assigned "
             f"to **{geometry_labels[dominant_index]}**."
         )
+
+
+# ============================================================
+# Aggregate Query-Gate Analysis
+# ============================================================
+
+st.divider()
+
+st.subheader(
+    "Average Geometry Weights by Part Query"
+)
+
+st.write(
+    """
+The values below average the learned query-gate weights across
+all unseen evaluation samples for each part query. This shows
+whether different semantic part queries systematically emphasize
+different geometric cues.
+"""
+)
+
+
+if not checkpoint_exists(
+    "alignment_query_gated_uvd"
+):
+
+    st.warning(
+        "Query-gated checkpoint is not available "
+        "on this machine."
+    )
+
+else:
+
+    if st.button(
+        "Compute Aggregate Gate Weights"
+    ):
+
+        gate_records = []
+
+        progress_bar = st.progress(
+            0.0
+        )
+
+        status_text = st.empty()
+
+        total_samples = len(
+            dataset
+        )
+
+
+        for index in range(
+            total_samples
+        ):
+
+            current_sample = dataset[
+                index
+            ]
+
+
+            status_text.text(
+                f"Processing sample "
+                f"{index + 1} / {total_samples}"
+            )
+
+
+            result = predict_sample(
+                current_sample,
+                "alignment_query_gated_uvd",
+            )
+
+
+            gate_weights = (
+                result[
+                    "aux"
+                ].get(
+                    "gate_weights"
+                )
+            )
+
+
+            if gate_weights is not None:
+
+                weights = (
+                    gate_weights[
+                        0
+                    ]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                )
+
+
+                gate_records.append(
+                    {
+                        "query":
+                            current_sample[
+                                "query"
+                            ],
+
+                        "part":
+                            current_sample[
+                                "part_name"
+                            ],
+
+                        "U":
+                            float(
+                                weights[
+                                    0
+                                ]
+                            ),
+
+                        "V":
+                            float(
+                                weights[
+                                    1
+                                ]
+                            ),
+
+                        "D":
+                            float(
+                                weights[
+                                    2
+                                ]
+                            ),
+                    }
+                )
+
+
+            progress_bar.progress(
+                (
+                    index
+                    + 1
+                )
+                / total_samples
+            )
+
+
+        status_text.empty()
+
+        progress_bar.empty()
+
+
+        if gate_records:
+
+            gate_df = pd.DataFrame(
+                gate_records
+            )
+
+
+            query_gate_df = (
+                gate_df
+                .groupby(
+                    "query"
+                )[
+                    [
+                        "U",
+                        "V",
+                        "D",
+                    ]
+                ]
+                .mean()
+                .reset_index()
+            )
+
+
+            query_counts = (
+                gate_df
+                .groupby(
+                    "query"
+                )
+                .size()
+                .rename(
+                    "Samples"
+                )
+                .reset_index()
+            )
+
+
+            query_gate_df = (
+                query_gate_df.merge(
+                    query_counts,
+                    on="query",
+                )
+            )
+
+
+            geometry_columns = [
+                "U",
+                "V",
+                "D",
+            ]
+
+
+            query_gate_df[
+                "Dominant Geometry"
+            ] = (
+                query_gate_df[
+                    geometry_columns
+                ]
+                .idxmax(
+                    axis=1
+                )
+            )
+
+
+            query_gate_df = (
+                query_gate_df
+                .sort_values(
+                    "query"
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+
+            st.dataframe(
+                query_gate_df,
+                width="stretch",
+                hide_index=True,
+            )
+
+
+            st.markdown(
+                "#### Mean Gate Weights"
+            )
+
+
+            chart_df = (
+                query_gate_df
+                .set_index(
+                    "query"
+                )[
+                    geometry_columns
+                ]
+            )
+
+
+            st.bar_chart(
+                chart_df
+            )
+
+
+            overall_weights = (
+                gate_df[
+                    geometry_columns
+                ]
+                .mean()
+            )
+
+
+            c1, c2, c3 = st.columns(
+                3
+            )
+
+
+            c1.metric(
+                "Overall mean α U",
+                f"{overall_weights['U']:.3f}",
+            )
+
+            c2.metric(
+                "Overall mean α V",
+                f"{overall_weights['V']:.3f}",
+            )
+
+            c3.metric(
+                "Overall mean α D",
+                f"{overall_weights['D']:.3f}",
+            )
+
+
+            dominant_counts = (
+                query_gate_df[
+                    "Dominant Geometry"
+                ]
+                .value_counts()
+            )
+
+
+            st.markdown(
+                "#### Dominant Cue Across Queries"
+            )
+
+
+            dominant_df = pd.DataFrame(
+                {
+                    "Geometry":
+                        [
+                            "U",
+                            "V",
+                            "D",
+                        ],
+
+                    "Number of queries":
+                        [
+                            int(
+                                dominant_counts.get(
+                                    "U",
+                                    0,
+                                )
+                            ),
+
+                            int(
+                                dominant_counts.get(
+                                    "V",
+                                    0,
+                                )
+                            ),
+
+                            int(
+                                dominant_counts.get(
+                                    "D",
+                                    0,
+                                )
+                            ),
+                        ],
+                }
+            )
+
+
+            st.bar_chart(
+                dominant_df.set_index(
+                    "Geometry"
+                )
+            )
+
+
+        else:
+
+            st.warning(
+                "No gate weights were returned "
+                "for the unseen evaluation samples."
+            )
 
 
 # ============================================================

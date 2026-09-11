@@ -168,12 +168,17 @@ if len(
 
 st.info(
     """
-Relative UV consistently performs best across the tested
-rotation angles and mask perturbations.
+Relative UV achieves the highest IoU among the three tested
+coordinate representations across the evaluated rotation angles
+and mask perturbations.
 
-However, all models degrade under severe rotation and strong
-mask corruption, so object-relative coordinates improve
-robustness but do not make the representation rotation invariant.
+However, the clean-performance difference between Relative UV
+and Absolute XY is small. The robustness results therefore
+suggest a modest advantage for object-relative coordinates rather
+than a large overall improvement.
+
+Performance still decreases under severe rotation and strong
+mask corruption, so Relative UV is not rotation invariant.
 """
 )
 
@@ -868,19 +873,24 @@ if (
 
 st.divider()
 
-st.subheader(
+sst.subheader(
     "Interpretation"
 )
 
 st.markdown(
     """
-The robustness experiments show three consistent patterns.
+The robustness experiments show three main patterns.
 
-### 1. Relative UV is the strongest representation
+### 1. Relative UV shows a modest robustness advantage
 
-Object-relative UV coordinates outperform both object-mask-only
-conditioning and absolute XY coordinates across all tested
-rotation angles and mask perturbations.
+Relative UV achieves the highest IoU among the tested
+Object Mask, Absolute XY, and Relative UV representations across
+the evaluated rotations and mask perturbations.
+
+However, on the clean validation comparison, Relative UV
+improves only marginally over Absolute XY. Therefore, these
+results provide limited evidence that object-relative
+normalization itself is a major source of performance gain.
 
 ### 2. Relative UV is not rotation invariant
 
@@ -893,10 +903,11 @@ axis-aligned U/V coordinates remain orientation sensitive.
 Mask erosion and large spatial shifts substantially reduce
 performance. In contrast, moderate mask dilation can slightly
 improve IoU, suggesting that retaining additional surrounding
-object context is less harmful than removing true object pixels.
+context is less harmful than removing true object pixels.
 
-Overall, object-relative geometry improves robustness but does not
-fully solve rotation sensitivity or dependence on accurate
-parent-object masks.
+Overall, Relative UV provides a modest robustness advantage over
+Absolute XY and mask-only conditioning in these experiments, but
+the difference is not large enough to claim that object-relative
+coordinates are fundamentally superior.
 """
 )
