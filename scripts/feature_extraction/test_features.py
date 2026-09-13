@@ -4,7 +4,7 @@ import sys
 import torch
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -15,17 +15,17 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from datasets import PascalPart116Dataset
 
-from src.preprocessing import (
+from src.features.preprocessing import (
     resize_and_pad_image,
 )
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
     extract_dino_features,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     build_text_prompt,
     extract_clip_features,

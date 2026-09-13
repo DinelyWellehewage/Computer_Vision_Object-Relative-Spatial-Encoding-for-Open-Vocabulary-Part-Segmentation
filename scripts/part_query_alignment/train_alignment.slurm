@@ -50,4 +50,4 @@ echo "Starting alignment training"
 echo "========================================"
 
 
-python scripts/train_alignment.py
+python scripts/part_query_alignment/train_alignment.py

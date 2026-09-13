@@ -15,21 +15,21 @@ from datasets import (
     ObjectCentricDataset,
 )
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.alignment_model import (
+from src.part_query_alignment.alignment_model import (
     PartQueryAlignmentSegmenter,
 )
 
-from src.crop_projection import (
+from src.object_centric_zoom.crop_projection import (
     project_crop_prediction_to_full_view,
 )
 

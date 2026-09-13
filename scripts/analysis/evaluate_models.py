@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -21,25 +21,25 @@ from datasets import (
     AlignmentDataset,
 )
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.baseline_model import (
+from src.baseline_segmentation.baseline_model import (
     BaselinePartSegmenter,
 )
 
-from src.geometry_model import (
+from src.geometry_comparison.geometry_model import (
     GeometryPartSegmenter,
 )
 
-from src.alignment_model import (
+from src.part_query_alignment.alignment_model import (
     PartQueryAlignmentSegmenter,
 )
 

@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -18,34 +18,39 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 
-from datasets import GeometryDataset
+from datasets import ObjectCentricDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.geometry_model import (
-    GeometryPartSegmenter,
+from src.part_query_alignment.alignment_model import (
+    PartQueryAlignmentSegmenter,
 )
 
-from src.metrics import (
-    segmentation_loss,
+from src.part_query_alignment.alignment_loss import (
+    compute_total_alignment_loss,
+)
+
+from src.features.metrics import (
     dice_score,
     iou_score,
 )
 
 
-MODE = "relative_uv"
+MODE = "alignment_query_gated_uvd"
 
 SEED = 42
 
 IMAGE_SIZE = 224
+
+CROP_CONTEXT_RATIO = 0.15
 
 TRAIN_BATCH_SIZE = 16
 VAL_BATCH_SIZE = 16
@@ -58,7 +63,10 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 
 VISUAL_DIM = 128
-TEXT_DIM = 32
+TEXT_COMMON_DIM = 128
+TEXT_DECODER_DIM = 32
+
+TEMPERATURE = 0.10
 
 MASK_THRESHOLD = 0.5
 
@@ -71,7 +79,7 @@ USE_AMP = torch.cuda.is_available()
 OUTPUT_ROOT = (
     PROJECT_ROOT
     / "outputs"
-    / "geometry"
+    / "object_zoom"
 )
 
 
@@ -79,7 +87,9 @@ def seed_everything(
     seed=42,
 ):
     random.seed(seed)
+
     np.random.seed(seed)
+
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
@@ -117,16 +127,26 @@ def encode_queries(
 def get_trainable_state(
     model,
 ):
-    return {
+    state = {
         "visual_projection":
             model.visual_projection.state_dict(),
 
         "text_projection":
             model.text_projection.state_dict(),
 
+        "text_decoder_projection":
+            model.text_decoder_projection.state_dict(),
+
         "decoder":
             model.decoder.state_dict(),
     }
+
+    if model.geometry_gate is not None:
+        state["geometry_gate"] = (
+            model.geometry_gate.state_dict()
+        )
+
+    return state
 
 
 def run_epoch(
@@ -143,14 +163,19 @@ def run_epoch(
 
     if training:
         model.train()
+
     else:
         model.eval()
 
+
     total_loss = 0.0
-    total_bce = 0.0
-    total_dice_loss = 0.0
+
+    total_seg_loss = 0.0
+
+    total_align_loss = 0.0
 
     total_iou = 0.0
+
     total_dice = 0.0
 
     total_samples = 0
@@ -161,7 +186,7 @@ def run_epoch(
         start=1,
     ):
         images = batch[
-            "image"
+            "crop_image"
         ].to(
             DEVICE,
             non_blocking=True,
@@ -169,7 +194,7 @@ def run_epoch(
 
 
         object_masks = batch[
-            "object_mask"
+            "crop_object_mask"
         ].to(
             DEVICE,
             non_blocking=True,
@@ -177,23 +202,7 @@ def run_epoch(
 
 
         targets = batch[
-            "part_mask"
-        ].to(
-            DEVICE,
-            non_blocking=True,
-        )
-
-
-        absolute_x = batch[
-            "absolute_x"
-        ].to(
-            DEVICE,
-            non_blocking=True,
-        )
-
-
-        absolute_y = batch[
-            "absolute_y"
+            "crop_part_mask"
         ].to(
             DEVICE,
             non_blocking=True,
@@ -201,7 +210,7 @@ def run_epoch(
 
 
         relative_u = batch[
-            "relative_u"
+            "crop_relative_u"
         ].to(
             DEVICE,
             non_blocking=True,
@@ -209,20 +218,26 @@ def run_epoch(
 
 
         relative_v = batch[
-            "relative_v"
+            "crop_relative_v"
         ].to(
             DEVICE,
             non_blocking=True,
         )
 
 
-        text_embeddings = (
-            encode_queries(
-                clip_model,
-                tokenizer,
-                batch["query"],
-                DEVICE,
-            )
+        boundary_d = batch[
+            "crop_boundary_d"
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
+
+
+        text_embeddings = encode_queries(
+            clip_model,
+            tokenizer,
+            batch["query"],
+            DEVICE,
         )
 
 
@@ -240,38 +255,51 @@ def run_epoch(
         with torch.set_grad_enabled(
             training
         ):
-
             with torch.autocast(
                 device_type=DEVICE.type,
                 dtype=torch.float16,
                 enabled=USE_AMP,
             ):
+                if MODE in {
+                    "alignment_fixed_uvd",
+                    "alignment_query_gated_uvd",
+                }:
+                    logits, aux = model(
+                        images,
+                        text_embeddings,
+                        object_masks,
+                        relative_u,
+                        relative_v,
+                        boundary_d,
+                    )
+                else:
+                    logits, aux = model(
+                        images,
+                        text_embeddings,
+                        object_masks,
+                        relative_u,
+                        relative_v,
+                    )
 
-                logits = model(
-                    images,
-                    text_embeddings,
-                    object_masks,
-                    absolute_x,
-                    absolute_y,
-                    relative_u,
-                    relative_v,
+
+                losses = (
+                    compute_total_alignment_loss(
+                        mode=MODE,
+                        logits=logits,
+                        aux=aux,
+                        part_mask=targets,
+                        object_mask=object_masks,
+                    )
                 )
 
 
-                (
-                    loss,
-                    bce_loss,
-                    dice_loss_value,
-                ) = segmentation_loss(
-                    logits,
-                    targets,
-                )
+                loss = losses[
+                    "total"
+                ]
 
 
             if training:
-
                 if scaler is not None:
-
                     scaler.scale(
                         loss
                     ).backward()
@@ -302,7 +330,6 @@ def run_epoch(
 
 
                 else:
-
                     loss.backward()
 
 
@@ -321,7 +348,6 @@ def run_epoch(
 
 
         with torch.no_grad():
-
             batch_iou = iou_score(
                 logits,
                 targets,
@@ -337,19 +363,19 @@ def run_epoch(
 
 
         total_loss += (
-            loss.item()
+            losses["total"].item()
             * batch_size
         )
 
 
-        total_bce += (
-            bce_loss.item()
+        total_seg_loss += (
+            losses["seg_total"].item()
             * batch_size
         )
 
 
-        total_dice_loss += (
-            dice_loss_value.item()
+        total_align_loss += (
+            losses["align_total"].item()
             * batch_size
         )
 
@@ -373,14 +399,14 @@ def run_epoch(
 
         if (
             batch_index % 50 == 0
-            or batch_index
-            == len(loader)
+            or batch_index == len(loader)
         ):
             phase = (
                 "Train"
                 if training
                 else "Validation"
             )
+
 
             print(
                 f"{phase} "
@@ -400,12 +426,12 @@ def run_epoch(
             total_loss
             / total_samples,
 
-        "bce":
-            total_bce
+        "seg_loss":
+            total_seg_loss
             / total_samples,
 
-        "dice_loss":
-            total_dice_loss
+        "align_loss":
+            total_align_loss
             / total_samples,
 
         "iou":
@@ -442,6 +468,12 @@ def main():
     )
 
 
+    print(
+        "Crop context:",
+        CROP_CONTEXT_RATIO,
+    )
+
+
     experiment_dir = (
         OUTPUT_ROOT
         / MODE
@@ -454,15 +486,19 @@ def main():
     )
 
 
-    train_dataset = GeometryDataset(
+    train_dataset = ObjectCentricDataset(
         split="train_seen",
         image_size=IMAGE_SIZE,
+        context_ratio=CROP_CONTEXT_RATIO,
     )
 
 
-    validation_dataset = GeometryDataset(
-        split="validation_seen",
-        image_size=IMAGE_SIZE,
+    validation_dataset = (
+        ObjectCentricDataset(
+            split="validation_seen",
+            image_size=IMAGE_SIZE,
+            context_ratio=CROP_CONTEXT_RATIO,
+        )
     )
 
 
@@ -525,15 +561,17 @@ def main():
 
 
     print(
-        "Creating geometry model..."
+        "Creating crop model..."
     )
 
 
-    model = GeometryPartSegmenter(
+    model = PartQueryAlignmentSegmenter(
         dino_encoder=dino_model,
         mode=MODE,
         visual_dim=VISUAL_DIM,
-        text_dim=TEXT_DIM,
+        text_common_dim=TEXT_COMMON_DIM,
+        text_decoder_dim=TEXT_DECODER_DIM,
+        temperature=TEMPERATURE,
     ).to(
         DEVICE
     )
@@ -592,6 +630,9 @@ def main():
         "image_size":
             IMAGE_SIZE,
 
+        "crop_context_ratio":
+            CROP_CONTEXT_RATIO,
+
         "epochs":
             EPOCHS,
 
@@ -610,8 +651,14 @@ def main():
         "visual_dim":
             VISUAL_DIM,
 
-        "text_dim":
-            TEXT_DIM,
+        "text_common_dim":
+            TEXT_COMMON_DIM,
+
+        "text_decoder_dim":
+            TEXT_DECODER_DIM,
+
+        "temperature":
+            TEMPERATURE,
 
         "mask_threshold":
             MASK_THRESHOLD,
@@ -653,7 +700,9 @@ def main():
 
         print()
         print(
-            f"Epoch {epoch}/{EPOCHS}"
+            f"Epoch "
+            f"{epoch}/"
+            f"{EPOCHS}"
         )
 
 
@@ -668,7 +717,6 @@ def main():
 
 
         with torch.no_grad():
-
             validation_metrics = run_epoch(
                 model,
                 validation_loader,
@@ -709,6 +757,16 @@ def main():
                     "loss"
                 ],
 
+            "train_seg_loss":
+                train_metrics[
+                    "seg_loss"
+                ],
+
+            "train_align_loss":
+                train_metrics[
+                    "align_loss"
+                ],
+
             "train_iou":
                 train_metrics[
                     "iou"
@@ -722,6 +780,16 @@ def main():
             "val_loss":
                 validation_metrics[
                     "loss"
+                ],
+
+            "val_seg_loss":
+                validation_metrics[
+                    "seg_loss"
+                ],
+
+            "val_align_loss":
+                validation_metrics[
+                    "align_loss"
                 ],
 
             "val_iou":
@@ -751,13 +819,10 @@ def main():
         print(
             f"[{MODE}] "
             f"Epoch "
-            f"{epoch:02d}/{EPOCHS} | "
-            f"train loss "
-            f"{train_metrics['loss']:.4f} | "
+            f"{epoch:02d}/"
+            f"{EPOCHS} | "
             f"train IoU "
             f"{train_metrics['iou']:.4f} | "
-            f"val loss "
-            f"{validation_metrics['loss']:.4f} | "
             f"val IoU "
             f"{validation_metrics['iou']:.4f} | "
             f"val Dice "
@@ -841,7 +906,7 @@ def main():
 
     print()
     print(
-        "Training completed successfully."
+        "Object-centric training completed."
     )
 
 
@@ -853,3 +918,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

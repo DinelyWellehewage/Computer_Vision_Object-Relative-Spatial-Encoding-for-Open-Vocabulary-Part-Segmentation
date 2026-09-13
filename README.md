@@ -59,31 +59,31 @@ python scripts/inspect_dataset.py --split train
 Baseline experiments:
 
 ```bash
-python scripts/train_baseline.py --help
+python scripts/baseline_segmentation/train_baseline.py --help
 ```
 
 Geometry experiments:
 
 ```bash
-python scripts/train_geometry.py --help
+python scripts/geometry_comparison/train_geometry.py --help
 ```
 
 Query-gated UVD experiments:
 
 ```bash
-python scripts/train_uvd.py --help
+python scripts/query_gated_uvd/train_uvd.py --help
 ```
 
 Object-centric experiments:
 
 ```bash
-python scripts/train_object_zoom.py --help
+python scripts/object_centric_zoom/train_object_zoom.py --help
 ```
 
 Robustness evaluation:
 
 ```bash
-python scripts/evaluate_robustness.py
+python scripts/robustness/evaluate_robustness.py
 ```
 
 For full training, the corresponding Slurm scripts under `scripts/` can be submitted on a GPU cluster.

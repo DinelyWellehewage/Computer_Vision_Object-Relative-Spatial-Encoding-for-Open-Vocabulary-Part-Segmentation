@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import json
 import sys
 
@@ -6,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -17,46 +18,55 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from datasets import ObjectCentricDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.alignment_model import (
+from src.part_query_alignment.alignment_model import (
     PartQueryAlignmentSegmenter,
 )
 
-from src.crop_projection import (
+from src.object_centric_zoom.crop_projection import (
     project_crop_prediction_to_full_view,
-)
-
-from src.metrics import (
-    dice_score,
-    iou_score,
 )
 
 
 DEVICE = get_device()
 
 BATCH_SIZE = 1
-
 NUM_WORKERS = 2
-
 MASK_THRESHOLD = 0.5
 
-MODE = "alignment_mask"
-
+VALID_MODES = {
+    "alignment_fixed_uvd",
+    "alignment_query_gated_uvd",
+}
 
 OUTPUT_DIR = (
     PROJECT_ROOT
     / "outputs"
     / "object_zoom_evaluation"
 )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=sorted(
+            VALID_MODES
+        ),
+    )
+
+    return parser.parse_args()
 
 
 def encode_query(
@@ -73,6 +83,7 @@ def encode_query(
 
 
 def load_model(
+    mode,
     checkpoint_path,
     dino_model,
 ):
@@ -83,7 +94,7 @@ def load_model(
 
     model = PartQueryAlignmentSegmenter(
         dino_encoder=dino_model,
-        mode=MODE,
+        mode=mode,
     ).to(
         DEVICE
     )
@@ -116,6 +127,16 @@ def load_model(
         ]
     )
 
+    if (
+        model.geometry_gate is not None
+        and "geometry_gate" in state
+    ):
+        model.geometry_gate.load_state_dict(
+            state[
+                "geometry_gate"
+            ]
+        )
+
     model.eval()
 
     return model
@@ -123,8 +144,7 @@ def load_model(
 
 def evaluate_split(
     split,
-    full_model,
-    crop_model,
+    model,
     clip_model,
     tokenizer,
 ):
@@ -139,12 +159,8 @@ def evaluate_split(
         num_workers=NUM_WORKERS,
     )
 
-    full_iou_total = 0.0
-    full_dice_total = 0.0
-
-    crop_iou_total = 0.0
-    crop_dice_total = 0.0
-
+    iou_total = 0.0
+    dice_total = 0.0
     total_samples = 0
 
 
@@ -161,59 +177,6 @@ def evaluate_split(
                 clip_model,
                 tokenizer,
                 query,
-            )
-
-
-            full_image = batch[
-                "full_image"
-            ].to(
-                DEVICE
-            )
-
-            full_object = batch[
-                "full_object_mask"
-            ].to(
-                DEVICE
-            )
-
-            full_part = batch[
-                "full_part_mask"
-            ].to(
-                DEVICE
-            )
-
-            full_u = batch[
-                "full_relative_u"
-            ].to(
-                DEVICE
-            )
-
-            full_v = batch[
-                "full_relative_v"
-            ].to(
-                DEVICE
-            )
-
-
-            full_logits, _ = full_model(
-                full_image,
-                text,
-                full_object,
-                full_u,
-                full_v,
-            )
-
-
-            full_iou = iou_score(
-                full_logits,
-                full_part,
-                threshold=MASK_THRESHOLD,
-            )
-
-            full_dice = dice_score(
-                full_logits,
-                full_part,
-                threshold=MASK_THRESHOLD,
             )
 
 
@@ -241,19 +204,28 @@ def evaluate_split(
                 DEVICE
             )
 
+            crop_d = batch[
+                "crop_boundary_d"
+            ].to(
+                DEVICE
+            )
 
-            crop_logits, _ = crop_model(
+
+            crop_logits, _ = model(
                 crop_image,
                 text,
                 crop_object,
                 crop_u,
                 crop_v,
+                crop_d,
             )
 
 
-            crop_probability = torch.sigmoid(
-                crop_logits
-            )[0]
+            crop_probability = (
+                torch.sigmoid(
+                    crop_logits
+                )[0]
+            )
 
 
             projected = (
@@ -298,93 +270,75 @@ def evaluate_split(
             )
 
 
-            projected_binary = (
+            full_part = batch[
+                "full_part_mask"
+            ].to(
+                DEVICE
+            )
+
+
+            prediction = (
                 projected
                 > MASK_THRESHOLD
-            ).float()
+            )
 
-
-            target_binary = (
+            target = (
                 full_part
                 > MASK_THRESHOLD
-            ).float()
+            )
 
 
             intersection = (
-                projected_binary
-                * target_binary
-            ).sum(
-                dim=(
-                    1,
-                    2,
-                    3,
-                )
-            )
+                prediction
+                & target
+            ).sum().float()
 
 
             union = (
-                (
-                    projected_binary
-                    + target_binary
-                ) > 0
-            ).float().sum(
-                dim=(
-                    1,
-                    2,
-                    3,
-                )
+                prediction
+                | target
+            ).sum().float()
+
+
+            prediction_sum = (
+                prediction
+                .sum()
+                .float()
+            )
+
+            target_sum = (
+                target
+                .sum()
+                .float()
             )
 
 
-            crop_iou = (
+            iou = (
                 intersection
                 / union.clamp_min(
                     1.0
                 )
-            ).mean()
-
-
-            dice_denominator = (
-                projected_binary.sum(
-                    dim=(
-                        1,
-                        2,
-                        3,
-                    )
-                )
-                + target_binary.sum(
-                    dim=(
-                        1,
-                        2,
-                        3,
-                    )
-                )
             )
 
 
-            crop_dice = (
+            dice = (
                 2.0
                 * intersection
-                / dice_denominator.clamp_min(
+                / (
+                    prediction_sum
+                    + target_sum
+                ).clamp_min(
                     1.0
                 )
-            ).mean()
-
-
-            full_iou_total += (
-                full_iou.item()
             )
 
-            full_dice_total += (
-                full_dice.item()
+
+            iou_total += (
+                iou.item()
             )
 
-            crop_iou_total += (
-                crop_iou.item()
-            )
-
-            crop_dice_total += (
-                crop_dice.item()
+            dice_total += (
+                dice.item()
             )
 
             total_samples += 1
@@ -407,68 +361,56 @@ def evaluate_split(
         "samples":
             total_samples,
 
-        "full_image":
-            {
-                "iou":
-                    full_iou_total
-                    / total_samples,
+        "iou":
+            (
+                iou_total
+                / total_samples
+            ),
 
-                "dice":
-                    full_dice_total
-                    / total_samples,
-            },
-
-        "object_crop":
-            {
-                "iou":
-                    crop_iou_total
-                    / total_samples,
-
-                "dice":
-                    crop_dice_total
-                    / total_samples,
-            },
+        "dice":
+            (
+                dice_total
+                / total_samples
+            ),
     }
 
 
 def main():
+    args = parse_args()
+
+    mode = args.mode
+
     print(
         "Device:",
         DEVICE,
     )
 
-    full_checkpoint = (
-        PROJECT_ROOT
-        / "outputs"
-        / "experiments"
-        / "part_query_alignment"
-        / MODE
-        / "best.pt"
+    print(
+        "Mode:",
+        mode,
     )
 
-    crop_checkpoint = (
+
+    checkpoint_path = (
         PROJECT_ROOT
         / "outputs"
         / "object_zoom"
-        / MODE
+        / mode
         / "best.pt"
     )
 
 
-    if not full_checkpoint.is_file():
+    if not checkpoint_path.is_file():
         raise FileNotFoundError(
-            f"Full-image checkpoint "
-            f"not found: "
-            f"{full_checkpoint}"
+            f"Checkpoint not found: "
+            f"{checkpoint_path}"
         )
 
 
-    if not crop_checkpoint.is_file():
-        raise FileNotFoundError(
-            f"Crop checkpoint "
-            f"not found: "
-            f"{crop_checkpoint}"
-        )
+    print(
+        "Checkpoint:",
+        checkpoint_path,
+    )
 
 
     print(
@@ -492,21 +434,12 @@ def main():
 
 
     print(
-        "Loading full-image model..."
-    )
-
-    full_model = load_model(
-        full_checkpoint,
-        dino_model,
-    )
-
-
-    print(
         "Loading crop model..."
     )
 
-    crop_model = load_model(
-        crop_checkpoint,
+    model = load_model(
+        mode,
+        checkpoint_path,
         dino_model,
     )
 
@@ -524,37 +457,25 @@ def main():
             split,
         )
 
-        split_results = (
-            evaluate_split(
-                split,
-                full_model,
-                crop_model,
-                clip_model,
-                tokenizer,
-            )
+        result = evaluate_split(
+            split,
+            model,
+            clip_model,
+            tokenizer,
         )
 
         results.append(
-            split_results
-        )
-
-
-        print(
-            "Full-image IoU:",
-            split_results[
-                "full_image"
-            ][
-                "iou"
-            ],
+            result
         )
 
         print(
-            "Crop IoU:",
-            split_results[
-                "object_crop"
-            ][
-                "iou"
-            ],
+            "IoU:",
+            result["iou"],
+        )
+
+        print(
+            "Dice:",
+            result["dice"],
         )
 
 
@@ -566,13 +487,24 @@ def main():
 
     output_path = (
         OUTPUT_DIR
-        / "object_zoom_results.json"
+        / f"{mode}_results.json"
     )
 
 
     output_path.write_text(
         json.dumps(
-            results,
+            {
+                "mode":
+                    mode,
+
+                "checkpoint":
+                    str(
+                        checkpoint_path
+                    ),
+
+                "results":
+                    results,
+            },
             indent=2,
         ),
         encoding="utf-8",

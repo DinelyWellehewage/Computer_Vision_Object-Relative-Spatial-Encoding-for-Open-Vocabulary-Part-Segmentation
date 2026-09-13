@@ -9,15 +9,15 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from datasets.alignment_dataset import AlignmentDataset
-from src.dino_features import get_device, load_dino_model
-from src.clip_features import load_clip_model
-from src.alignment_model import PartQueryAlignmentSegmenter
-from src.alignment_loss import compute_total_alignment_loss
+from src.features.dino_features import get_device, load_dino_model
+from src.features.clip_features import load_clip_model
+from src.part_query_alignment.alignment_model import PartQueryAlignmentSegmenter
+from src.part_query_alignment.alignment_loss import compute_total_alignment_loss
 
 
 MODE = "alignment_relative_uv"

@@ -1,11 +1,11 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=cv-part-eval
+#SBATCH --job-name=cv-part-uvd
 #SBATCH --gres=gpu:a40:1
 #SBATCH --time=12:00:00
 #SBATCH --export=NONE
-#SBATCH --output=logs/eval_zoom_%j.out
-#SBATCH --error=logs/eval_zoom_%j.err
+#SBATCH --output=logs/uvd_%j.out
+#SBATCH --error=logs/uvd_%j.err
 
 unset SLURM_EXPORT_ENV
 
@@ -46,8 +46,8 @@ PY
 
 
 echo "========================================"
-echo "Starting object zoom evaluation"
+echo "Starting UVD training"
 echo "========================================"
 
 
-python scripts/evaluate_object_zoom.py
+python scripts/query_gated_uvd/train_uvd.py

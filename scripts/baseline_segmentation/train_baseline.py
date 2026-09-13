@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -18,39 +18,34 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 
-from datasets import ObjectCentricDataset
+from datasets import SegmentationDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.alignment_model import (
-    PartQueryAlignmentSegmenter,
+from src.baseline_segmentation.baseline_model import (
+    BaselinePartSegmenter,
 )
 
-from src.alignment_loss import (
-    compute_total_alignment_loss,
-)
-
-from src.metrics import (
+from src.features.metrics import (
+    segmentation_loss,
     dice_score,
     iou_score,
 )
 
 
-MODE = "alignment_query_gated_uvd"
+MODE = "object_mask"
 
 SEED = 42
 
 IMAGE_SIZE = 224
-
-CROP_CONTEXT_RATIO = 0.15
 
 TRAIN_BATCH_SIZE = 16
 VAL_BATCH_SIZE = 16
@@ -63,10 +58,7 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 
 VISUAL_DIM = 128
-TEXT_COMMON_DIM = 128
-TEXT_DECODER_DIM = 32
-
-TEMPERATURE = 0.10
+TEXT_DIM = 32
 
 MASK_THRESHOLD = 0.5
 
@@ -79,7 +71,7 @@ USE_AMP = torch.cuda.is_available()
 OUTPUT_ROOT = (
     PROJECT_ROOT
     / "outputs"
-    / "object_zoom"
+    / "experiments"
 )
 
 
@@ -87,9 +79,7 @@ def seed_everything(
     seed=42,
 ):
     random.seed(seed)
-
     np.random.seed(seed)
-
     torch.manual_seed(seed)
 
     if torch.cuda.is_available():
@@ -127,26 +117,16 @@ def encode_queries(
 def get_trainable_state(
     model,
 ):
-    state = {
+    return {
         "visual_projection":
             model.visual_projection.state_dict(),
 
         "text_projection":
             model.text_projection.state_dict(),
 
-        "text_decoder_projection":
-            model.text_decoder_projection.state_dict(),
-
         "decoder":
             model.decoder.state_dict(),
     }
-
-    if model.geometry_gate is not None:
-        state["geometry_gate"] = (
-            model.geometry_gate.state_dict()
-        )
-
-    return state
 
 
 def run_epoch(
@@ -163,75 +143,42 @@ def run_epoch(
 
     if training:
         model.train()
-
     else:
         model.eval()
 
-
     total_loss = 0.0
-
-    total_seg_loss = 0.0
-
-    total_align_loss = 0.0
+    total_bce = 0.0
+    total_dice_loss = 0.0
 
     total_iou = 0.0
-
     total_dice = 0.0
 
     total_samples = 0
-
 
     for batch_index, batch in enumerate(
         loader,
         start=1,
     ):
         images = batch[
-            "crop_image"
+            "image"
         ].to(
             DEVICE,
             non_blocking=True,
         )
-
 
         object_masks = batch[
-            "crop_object_mask"
+            "object_mask"
         ].to(
             DEVICE,
             non_blocking=True,
         )
-
 
         targets = batch[
-            "crop_part_mask"
+            "part_mask"
         ].to(
             DEVICE,
             non_blocking=True,
         )
-
-
-        relative_u = batch[
-            "crop_relative_u"
-        ].to(
-            DEVICE,
-            non_blocking=True,
-        )
-
-
-        relative_v = batch[
-            "crop_relative_v"
-        ].to(
-            DEVICE,
-            non_blocking=True,
-        )
-
-
-        boundary_d = batch[
-            "crop_boundary_d"
-        ].to(
-            DEVICE,
-            non_blocking=True,
-        )
-
 
         text_embeddings = encode_queries(
             clip_model,
@@ -240,76 +187,51 @@ def run_epoch(
             DEVICE,
         )
 
-
         batch_size = (
             images.shape[0]
         )
-
 
         if training:
             optimizer.zero_grad(
                 set_to_none=True
             )
 
-
         with torch.set_grad_enabled(
             training
         ):
+
             with torch.autocast(
                 device_type=DEVICE.type,
                 dtype=torch.float16,
                 enabled=USE_AMP,
             ):
-                if MODE in {
-                    "alignment_fixed_uvd",
-                    "alignment_query_gated_uvd",
-                }:
-                    logits, aux = model(
-                        images,
-                        text_embeddings,
-                        object_masks,
-                        relative_u,
-                        relative_v,
-                        boundary_d,
-                    )
-                else:
-                    logits, aux = model(
-                        images,
-                        text_embeddings,
-                        object_masks,
-                        relative_u,
-                        relative_v,
-                    )
-
-
-                losses = (
-                    compute_total_alignment_loss(
-                        mode=MODE,
-                        logits=logits,
-                        aux=aux,
-                        part_mask=targets,
-                        object_mask=object_masks,
-                    )
+                logits = model(
+                    images,
+                    text_embeddings,
+                    object_masks,
                 )
 
-
-                loss = losses[
-                    "total"
-                ]
-
+                (
+                    loss,
+                    bce_loss,
+                    dice_loss_value,
+                ) = segmentation_loss(
+                    logits,
+                    targets,
+                )
 
             if training:
+
                 if scaler is not None:
+
                     scaler.scale(
                         loss
                     ).backward()
-
 
                     scaler.unscale_(
                         optimizer
                     )
 
-
                     torch.nn.utils.clip_grad_norm_(
                         (
                             parameter
@@ -319,19 +241,16 @@ def run_epoch(
                         ),
                         max_norm=1.0,
                     )
-
 
                     scaler.step(
                         optimizer
                     )
 
-
                     scaler.update()
 
-
                 else:
-                    loss.backward()
 
+                    loss.backward()
 
                     torch.nn.utils.clip_grad_norm_(
                         (
@@ -343,17 +262,15 @@ def run_epoch(
                         max_norm=1.0,
                     )
 
-
                     optimizer.step()
 
-
         with torch.no_grad():
+
             batch_iou = iou_score(
                 logits,
                 targets,
                 threshold=MASK_THRESHOLD,
             )
-
 
             batch_dice = dice_score(
                 logits,
@@ -361,52 +278,45 @@ def run_epoch(
                 threshold=MASK_THRESHOLD,
             )
 
-
         total_loss += (
-            losses["total"].item()
+            loss.item()
             * batch_size
         )
 
-
-        total_seg_loss += (
-            losses["seg_total"].item()
+        total_bce += (
+            bce_loss.item()
             * batch_size
         )
 
-
-        total_align_loss += (
-            losses["align_total"].item()
+        total_dice_loss += (
+            dice_loss_value.item()
             * batch_size
         )
-
 
         total_iou += (
             batch_iou.item()
             * batch_size
         )
 
-
         total_dice += (
             batch_dice.item()
             * batch_size
         )
 
-
         total_samples += (
             batch_size
         )
 
-
         if (
             batch_index % 50 == 0
-            or batch_index == len(loader)
+            or batch_index
+            == len(loader)
         ):
             phase = (
                 "Train"
                 if training
                 else "Validation"
             )
-
 
             print(
                 f"{phase} "
@@ -420,18 +330,17 @@ def run_epoch(
                 f"{batch_dice.item():.4f}"
             )
 
-
     return {
         "loss":
             total_loss
             / total_samples,
 
-        "seg_loss":
-            total_seg_loss
+        "bce":
+            total_bce
             / total_samples,
 
-        "align_loss":
-            total_align_loss
+        "dice_loss":
+            total_dice_loss
             / total_samples,
 
         "iou":
@@ -449,36 +358,25 @@ def main():
         SEED
     )
 
-
     print(
         "Device:",
         DEVICE,
     )
-
 
     print(
         "AMP:",
         USE_AMP,
     )
 
-
     print(
         "Mode:",
         MODE,
     )
 
-
-    print(
-        "Crop context:",
-        CROP_CONTEXT_RATIO,
-    )
-
-
     experiment_dir = (
         OUTPUT_ROOT
         / MODE
     )
-
 
     experiment_dir.mkdir(
         parents=True,
@@ -486,19 +384,14 @@ def main():
     )
 
 
-    train_dataset = ObjectCentricDataset(
+    train_dataset = SegmentationDataset(
         split="train_seen",
         image_size=IMAGE_SIZE,
-        context_ratio=CROP_CONTEXT_RATIO,
     )
 
-
-    validation_dataset = (
-        ObjectCentricDataset(
-            split="validation_seen",
-            image_size=IMAGE_SIZE,
-            context_ratio=CROP_CONTEXT_RATIO,
-        )
+    validation_dataset = SegmentationDataset(
+        split="validation_seen",
+        image_size=IMAGE_SIZE,
     )
 
 
@@ -506,7 +399,6 @@ def main():
         "Training samples:",
         len(train_dataset),
     )
-
 
     print(
         "Validation samples:",
@@ -542,7 +434,6 @@ def main():
         "Loading DINOv2..."
     )
 
-
     dino_model = load_dino_model(
         device=DEVICE
     )
@@ -552,7 +443,6 @@ def main():
         "Loading CLIP..."
     )
 
-
     clip_model, tokenizer = (
         load_clip_model(
             device=DEVICE
@@ -561,17 +451,14 @@ def main():
 
 
     print(
-        "Creating crop model..."
+        "Creating model..."
     )
 
-
-    model = PartQueryAlignmentSegmenter(
+    model = BaselinePartSegmenter(
         dino_encoder=dino_model,
         mode=MODE,
         visual_dim=VISUAL_DIM,
-        text_common_dim=TEXT_COMMON_DIM,
-        text_decoder_dim=TEXT_DECODER_DIM,
-        temperature=TEMPERATURE,
+        text_dim=TEXT_DIM,
     ).to(
         DEVICE
     )
@@ -606,20 +493,6 @@ def main():
     )
 
 
-    trainable_parameters = sum(
-        parameter.numel()
-        for parameter
-        in model.parameters()
-        if parameter.requires_grad
-    )
-
-
-    print(
-        "Trainable parameters:",
-        trainable_parameters,
-    )
-
-
     config = {
         "mode":
             MODE,
@@ -629,9 +502,6 @@ def main():
 
         "image_size":
             IMAGE_SIZE,
-
-        "crop_context_ratio":
-            CROP_CONTEXT_RATIO,
 
         "epochs":
             EPOCHS,
@@ -651,14 +521,8 @@ def main():
         "visual_dim":
             VISUAL_DIM,
 
-        "text_common_dim":
-            TEXT_COMMON_DIM,
-
-        "text_decoder_dim":
-            TEXT_DECODER_DIM,
-
-        "temperature":
-            TEMPERATURE,
+        "text_dim":
+            TEXT_DIM,
 
         "mask_threshold":
             MASK_THRESHOLD,
@@ -675,7 +539,6 @@ def main():
         experiment_dir
         / "config.json"
     )
-
 
     config_path.write_text(
         json.dumps(
@@ -697,12 +560,9 @@ def main():
     ):
         start_time = time.time()
 
-
         print()
         print(
-            f"Epoch "
-            f"{epoch}/"
-            f"{EPOCHS}"
+            f"Epoch {epoch}/{EPOCHS}"
         )
 
 
@@ -717,6 +577,7 @@ def main():
 
 
         with torch.no_grad():
+
             validation_metrics = run_epoch(
                 model,
                 validation_loader,
@@ -757,16 +618,6 @@ def main():
                     "loss"
                 ],
 
-            "train_seg_loss":
-                train_metrics[
-                    "seg_loss"
-                ],
-
-            "train_align_loss":
-                train_metrics[
-                    "align_loss"
-                ],
-
             "train_iou":
                 train_metrics[
                     "iou"
@@ -780,16 +631,6 @@ def main():
             "val_loss":
                 validation_metrics[
                     "loss"
-                ],
-
-            "val_seg_loss":
-                validation_metrics[
-                    "seg_loss"
-                ],
-
-            "val_align_loss":
-                validation_metrics[
-                    "align_loss"
                 ],
 
             "val_iou":
@@ -819,10 +660,13 @@ def main():
         print(
             f"[{MODE}] "
             f"Epoch "
-            f"{epoch:02d}/"
-            f"{EPOCHS} | "
+            f"{epoch:02d}/{EPOCHS} | "
+            f"train loss "
+            f"{train_metrics['loss']:.4f} | "
             f"train IoU "
             f"{train_metrics['iou']:.4f} | "
+            f"val loss "
+            f"{validation_metrics['loss']:.4f} | "
             f"val IoU "
             f"{validation_metrics['iou']:.4f} | "
             f"val Dice "
@@ -876,13 +720,11 @@ def main():
                 ]
             )
 
-
             torch.save(
                 checkpoint,
                 experiment_dir
                 / "best.pt",
             )
-
 
             print(
                 "Saved new best checkpoint."
@@ -893,7 +735,6 @@ def main():
             experiment_dir
             / "history.json"
         )
-
 
         history_path.write_text(
             json.dumps(
@@ -906,9 +747,8 @@ def main():
 
     print()
     print(
-        "Object-centric training completed."
+        "Training completed successfully."
     )
-
 
     print(
         "Best validation IoU:",
@@ -918,4 +758,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

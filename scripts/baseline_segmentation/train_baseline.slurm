@@ -50,4 +50,4 @@ echo "Starting baseline training"
 echo "========================================"
 
 
-python scripts/train_baseline.py
+python scripts/baseline_segmentation/train_baseline.py

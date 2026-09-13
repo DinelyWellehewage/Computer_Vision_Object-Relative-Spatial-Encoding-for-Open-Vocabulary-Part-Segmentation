@@ -22,6 +22,6 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURMD_NODENAME"
 echo "Start: $(date)"
 
-python scripts/train_object_zoom.py
+python scripts/object_centric_zoom/train_object_zoom.py
 
 echo "Finished: $(date)"

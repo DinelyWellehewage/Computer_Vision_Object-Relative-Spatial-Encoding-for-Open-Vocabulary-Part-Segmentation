@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -20,21 +20,21 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from datasets.uvd_dataset import UvdDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.uvd_model import (
+from src.query_gated_uvd.uvd_model import (
     UVDPartSegmenter,
 )
 
-from src.metrics import (
+from src.features.metrics import (
     segmentation_loss,
     dice_score,
     iou_score,

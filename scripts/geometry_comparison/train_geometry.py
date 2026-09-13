@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -18,30 +18,30 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 
-from datasets import SegmentationDataset
+from datasets import GeometryDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.baseline_model import (
-    BaselinePartSegmenter,
+from src.geometry_comparison.geometry_model import (
+    GeometryPartSegmenter,
 )
 
-from src.metrics import (
+from src.features.metrics import (
     segmentation_loss,
     dice_score,
     iou_score,
 )
 
 
-MODE = "object_mask"
+MODE = "relative_uv"
 
 SEED = 42
 
@@ -71,7 +71,7 @@ USE_AMP = torch.cuda.is_available()
 OUTPUT_ROOT = (
     PROJECT_ROOT
     / "outputs"
-    / "experiments"
+    / "geometry"
 )
 
 
@@ -155,6 +155,7 @@ def run_epoch(
 
     total_samples = 0
 
+
     for batch_index, batch in enumerate(
         loader,
         start=1,
@@ -166,12 +167,14 @@ def run_epoch(
             non_blocking=True,
         )
 
+
         object_masks = batch[
             "object_mask"
         ].to(
             DEVICE,
             non_blocking=True,
         )
+
 
         targets = batch[
             "part_mask"
@@ -180,21 +183,59 @@ def run_epoch(
             non_blocking=True,
         )
 
-        text_embeddings = encode_queries(
-            clip_model,
-            tokenizer,
-            batch["query"],
+
+        absolute_x = batch[
+            "absolute_x"
+        ].to(
             DEVICE,
+            non_blocking=True,
         )
+
+
+        absolute_y = batch[
+            "absolute_y"
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
+
+
+        relative_u = batch[
+            "relative_u"
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
+
+
+        relative_v = batch[
+            "relative_v"
+        ].to(
+            DEVICE,
+            non_blocking=True,
+        )
+
+
+        text_embeddings = (
+            encode_queries(
+                clip_model,
+                tokenizer,
+                batch["query"],
+                DEVICE,
+            )
+        )
+
 
         batch_size = (
             images.shape[0]
         )
 
+
         if training:
             optimizer.zero_grad(
                 set_to_none=True
             )
+
 
         with torch.set_grad_enabled(
             training
@@ -205,11 +246,17 @@ def run_epoch(
                 dtype=torch.float16,
                 enabled=USE_AMP,
             ):
+
                 logits = model(
                     images,
                     text_embeddings,
                     object_masks,
+                    absolute_x,
+                    absolute_y,
+                    relative_u,
+                    relative_v,
                 )
+
 
                 (
                     loss,
@@ -220,6 +267,7 @@ def run_epoch(
                     targets,
                 )
 
+
             if training:
 
                 if scaler is not None:
@@ -228,9 +276,11 @@ def run_epoch(
                         loss
                     ).backward()
 
+
                     scaler.unscale_(
                         optimizer
                     )
+
 
                     torch.nn.utils.clip_grad_norm_(
                         (
@@ -241,16 +291,20 @@ def run_epoch(
                         ),
                         max_norm=1.0,
                     )
+
 
                     scaler.step(
                         optimizer
                     )
 
+
                     scaler.update()
+
 
                 else:
 
                     loss.backward()
+
 
                     torch.nn.utils.clip_grad_norm_(
                         (
@@ -262,7 +316,9 @@ def run_epoch(
                         max_norm=1.0,
                     )
 
+
                     optimizer.step()
+
 
         with torch.no_grad():
 
@@ -272,40 +328,48 @@ def run_epoch(
                 threshold=MASK_THRESHOLD,
             )
 
+
             batch_dice = dice_score(
                 logits,
                 targets,
                 threshold=MASK_THRESHOLD,
             )
 
+
         total_loss += (
             loss.item()
             * batch_size
         )
+
 
         total_bce += (
             bce_loss.item()
             * batch_size
         )
 
+
         total_dice_loss += (
             dice_loss_value.item()
             * batch_size
         )
+
 
         total_iou += (
             batch_iou.item()
             * batch_size
         )
 
+
         total_dice += (
             batch_dice.item()
             * batch_size
         )
 
+
         total_samples += (
             batch_size
         )
+
 
         if (
             batch_index % 50 == 0
@@ -329,6 +393,7 @@ def run_epoch(
                 f"Dice: "
                 f"{batch_dice.item():.4f}"
             )
+
 
     return {
         "loss":
@@ -358,25 +423,30 @@ def main():
         SEED
     )
 
+
     print(
         "Device:",
         DEVICE,
     )
+
 
     print(
         "AMP:",
         USE_AMP,
     )
 
+
     print(
         "Mode:",
         MODE,
     )
 
+
     experiment_dir = (
         OUTPUT_ROOT
         / MODE
     )
+
 
     experiment_dir.mkdir(
         parents=True,
@@ -384,12 +454,13 @@ def main():
     )
 
 
-    train_dataset = SegmentationDataset(
+    train_dataset = GeometryDataset(
         split="train_seen",
         image_size=IMAGE_SIZE,
     )
 
-    validation_dataset = SegmentationDataset(
+
+    validation_dataset = GeometryDataset(
         split="validation_seen",
         image_size=IMAGE_SIZE,
     )
@@ -399,6 +470,7 @@ def main():
         "Training samples:",
         len(train_dataset),
     )
+
 
     print(
         "Validation samples:",
@@ -434,6 +506,7 @@ def main():
         "Loading DINOv2..."
     )
 
+
     dino_model = load_dino_model(
         device=DEVICE
     )
@@ -443,6 +516,7 @@ def main():
         "Loading CLIP..."
     )
 
+
     clip_model, tokenizer = (
         load_clip_model(
             device=DEVICE
@@ -451,10 +525,11 @@ def main():
 
 
     print(
-        "Creating model..."
+        "Creating geometry model..."
     )
 
-    model = BaselinePartSegmenter(
+
+    model = GeometryPartSegmenter(
         dino_encoder=dino_model,
         mode=MODE,
         visual_dim=VISUAL_DIM,
@@ -490,6 +565,20 @@ def main():
     scaler = torch.amp.GradScaler(
         "cuda",
         enabled=USE_AMP,
+    )
+
+
+    trainable_parameters = sum(
+        parameter.numel()
+        for parameter
+        in model.parameters()
+        if parameter.requires_grad
+    )
+
+
+    print(
+        "Trainable parameters:",
+        trainable_parameters,
     )
 
 
@@ -540,6 +629,7 @@ def main():
         / "config.json"
     )
 
+
     config_path.write_text(
         json.dumps(
             config,
@@ -559,6 +649,7 @@ def main():
         EPOCHS + 1,
     ):
         start_time = time.time()
+
 
         print()
         print(
@@ -720,11 +811,13 @@ def main():
                 ]
             )
 
+
             torch.save(
                 checkpoint,
                 experiment_dir
                 / "best.pt",
             )
+
 
             print(
                 "Saved new best checkpoint."
@@ -735,6 +828,7 @@ def main():
             experiment_dir
             / "history.json"
         )
+
 
         history_path.write_text(
             json.dumps(
@@ -749,6 +843,7 @@ def main():
     print(
         "Training completed successfully."
     )
+
 
     print(
         "Best validation IoU:",

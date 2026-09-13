@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(
@@ -17,26 +17,26 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from datasets import RobustnessDataset
 
-from src.dino_features import (
+from src.features.dino_features import (
     get_device,
     load_dino_model,
 )
 
-from src.clip_features import (
+from src.features.clip_features import (
     load_clip_model,
     extract_clip_features,
 )
 
-from src.geometry_model import (
+from src.geometry_comparison.geometry_model import (
     GeometryPartSegmenter,
 )
 
-from src.metrics import (
+from src.features.metrics import (
     dice_score,
     iou_score,
 )
 
-from src.robustness import (
+from src.robustness.robustness import (
     ROTATION_ANGLES,
     MASK_NOISE_CONDITIONS,
 )

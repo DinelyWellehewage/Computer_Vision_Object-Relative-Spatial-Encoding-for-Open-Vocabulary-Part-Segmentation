@@ -50,4 +50,4 @@ echo "Starting geometry training"
 echo "========================================"
 
 
-python scripts/train_geometry.py
+python scripts/geometry_comparison/train_geometry.py
